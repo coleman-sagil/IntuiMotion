@@ -88,8 +88,9 @@ class GestureInterpreter:
                     events.append(GestureEvent("palm_engage", hand.type))
             else:
                 self._engage_pose_since = None
-                if pinching and not self._was_pinching:
-                    events.append(GestureEvent("pinch", hand.type))
+                if pinching:
+                    if not self._was_pinching:
+                        events.append(GestureEvent("pinch", hand.type))
                 else:
                     swipe_name = self._check_swipe(hand, speed)
                     if swipe_name:
@@ -116,7 +117,10 @@ class GestureInterpreter:
         if now - self._last_swipe_time < self.swipe_cooldown:
             return None
 
-        vx, vy, _vz = hand.palm.velocity
+        vx, vy, vz = hand.palm.velocity
+        if abs(vz) >= abs(vx) and abs(vz) >= abs(vy):
+            return None  # push/pull toward the sensor, not left-right/up-down
+
         self._last_swipe_time = now
         if abs(vx) >= abs(vy):
             return "swipe_right" if vx > 0 else "swipe_left"

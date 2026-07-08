@@ -56,12 +56,18 @@ triggered action.
 
 | Gesture | Trigger | Default action |
 |---|---|---|
-| `palm_engage` | open, still hand held ~0.4s | enters pointer mode (internal, not user-remappable) |
+| `palm_engage` | open, still hand held ~0.4s | enters pointer mode |
 | `pinch` (idle) | thumb+index pinch while idle | play/pause |
 | `click` (pointer mode) | thumb+index pinch while in pointer mode | left click |
-| `fist_exit` | fist while in pointer mode | exits pointer mode (internal) |
+| `fist_exit` | fist while in pointer mode | exits pointer mode |
 | `swipe_up` / `swipe_down` | fast vertical hand motion while idle | volume up / down |
 | `swipe_right` / `swipe_left` | fast horizontal hand motion while idle | next / previous track |
+
+`palm_engage` and `fist_exit` always drive the internal mode switch itself
+(that part is hardcoded, not configurable) -- but like every other gesture
+name, `ActionDispatcher` will also fire whatever action you attach to them in
+`gestures.yaml`, if anything. Leave them out of the config (the default) and
+they're just silent mode transitions.
 
 Cursor position while in pointer mode is driven directly by palm position,
 mapped from a Leap "interaction box" to screen pixels.

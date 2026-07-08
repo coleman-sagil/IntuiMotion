@@ -82,3 +82,25 @@ def test_pinch_in_pointer_mode_fires_click_not_pinch():
     _, events, _ = interpreter.update(pinching_hand)
 
     assert [e.name for e in events] == ["click"]
+
+
+def test_swipe_is_suppressed_while_a_pinch_is_held():
+    interpreter = GestureInterpreter(pinch_threshold=0.8, swipe_speed_threshold=500.0)
+    hand = FakeHand(pinch_strength=0.9)
+    interpreter.update(hand)  # first frame: fires "pinch"
+
+    still_pinching_and_moving = FakeHand(
+        pinch_strength=0.9, palm=FakePalm(velocity=(800, 0, 0))
+    )
+    _, events, _ = interpreter.update(still_pinching_and_moving)
+
+    assert events == []
+
+
+def test_swipe_ignores_push_pull_motion_toward_sensor():
+    interpreter = GestureInterpreter(swipe_speed_threshold=500.0)
+    hand = FakeHand(palm=FakePalm(velocity=(0, 0, 800)))
+
+    _, events, _ = interpreter.update(hand)
+
+    assert events == []

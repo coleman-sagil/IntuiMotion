@@ -15,8 +15,15 @@ class TrackingListener(leap.Listener):
         try:
             with event.device.open():
                 info = event.device.get_info()
-        except leap.LeapCannotOpenDeviceError:
-            info = event.device.get_info()
+        except leap.exceptions.LeapCannotOpenDeviceError:
+            # Raised both when the device is already open (get_info() below
+            # will succeed) and on a genuine open failure (it won't) --
+            # the try/except here is only for the former.
+            try:
+                info = event.device.get_info()
+            except Exception as error:
+                print(f"Could not open or read tracking device: {error}")
+                return
         print(f"Tracking device found: {info.serial}")
 
     def on_tracking_event(self, event):

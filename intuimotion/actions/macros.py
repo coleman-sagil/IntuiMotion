@@ -24,10 +24,14 @@ def _resolve_key(name):
 
 def run_keys(keys):
     resolved = [_resolve_key(k) for k in keys]
-    for key in resolved:
-        _keyboard.press(key)
-    for key in reversed(resolved):
-        _keyboard.release(key)
+    pressed = []
+    try:
+        for key in resolved:
+            _keyboard.press(key)
+            pressed.append(key)
+    finally:
+        for key in reversed(pressed):
+            _keyboard.release(key)
 
 
 def run_shell(command):
