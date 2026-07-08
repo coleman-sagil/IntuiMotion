@@ -1,0 +1,37 @@
+# Gesture -> action mapping. Reload-free at runtime is a possible future
+# addition; for now this is read once when the app starts.
+#
+# action: mouse | media -> function must be a real function name in
+#   intuimotion/actions/mouse.py or media.py
+# action: macro -> type: keys (list of key names, pressed together) or
+#   type: shell (a command string, run via subprocess)
+
+pinch:
+  action: media
+  function: play_pause
+
+click:
+  action: mouse
+  function: click
+
+swipe_up:
+  action: media
+  function: volume_up
+
+swipe_down:
+  action: media
+  function: volume_down
+
+swipe_right:
+  action: media
+  function: next_track
+
+swipe_left:
+  action: media
+  function: previous_track
+
+# Example custom macro, disabled by default:
+# open_terminal:
+#   action: macro
+#   type: keys
+#   keys: ["ctrl", "shift", "t"]

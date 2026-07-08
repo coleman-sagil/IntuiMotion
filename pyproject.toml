@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intuimotion"
+version = "0.1.0"
+description = "Gesture-driven mouse, media, and macro control for the Leap Motion Controller"
+requires-python = ">=3.10"
+dependencies = ["pynput", "pyyaml"]
+
+[project.scripts]
+intuimotion = "intuimotion.main:run"
+
+[tool.setuptools]
+packages = ["intuimotion", "intuimotion.actions"]
