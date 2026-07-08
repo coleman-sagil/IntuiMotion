@@ -99,14 +99,16 @@ file. No code changes needed for a new keystroke or shell macro.
   hand range.
 - **Pinch/grab/swipe/dwell thresholds** (`GestureInterpreter.__init__` in
   `intuimotion/gestures.py`) are untuned starting points.
-- **Single-hand only.** `main.py` feeds every tracked hand through one shared
-  `GestureInterpreter`; two hands in view will fight over the same mode
-  state. Fine for now, worth revisiting before two-handed gestures.
 - **No smoothing/deadzone** on cursor movement yet -- raw palm position maps
   straight to screen pixels every frame.
-- Not yet run against the live sensor; `tests/` only covers the gesture-logic
-  state machine and config loading with fake hand data, since those don't
-  need the compiled bindings or hardware.
+- **Two hands both in pointer mode at once will fight over cursor position**
+  (each hand gets its own `GestureInterpreter` and mode now, but there's only
+  one OS cursor -- whichever hand's frame is processed last each tick wins).
+  Not an issue for the intended one-hand-mouses/one-hand-gestures use case.
+- Confirmed working against the live sensor (connects, tracks, dispatches
+  real mouse/media actions). `tests/` covers the gesture-logic state machine
+  and config loading with fake hand data; nothing exercises the compiled
+  bindings themselves in CI since that needs the physical sensor.
 
 ## Tests
 

@@ -23,9 +23,14 @@ _MOUSE_BUTTON_EVENTS = {
 def run(config_path="config/gestures.yaml"):
     config = load_config(config_path)
     dispatcher = ActionDispatcher(config)
-    interpreter = GestureInterpreter()
+    # One interpreter per hand (keyed by LeapC's HandType) rather than one
+    # shared instance -- sharing state meant a left and right hand in view
+    # at once fought over the same mode/pinch state (confirmed live: clicks
+    # logged as alternating between hands that weren't doing the clicking).
+    interpreters = {}
 
     def on_hand_frame(hand):
+        interpreter = interpreters.setdefault(hand.type, GestureInterpreter())
         mode, events, pointer_position = interpreter.update(hand)
         for event in events:
             print(f"[{mode}] {event.name} ({event.hand_type})")
