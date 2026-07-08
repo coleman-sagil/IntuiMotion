@@ -1,20 +1,37 @@
+import re
+import subprocess
+
 from pynput.mouse import Button, Controller as MouseController
 
 _mouse = MouseController()
 
-try:
-    import tkinter
 
-    _root = tkinter.Tk()
-    _root.withdraw()
-    SCREEN_WIDTH = _root.winfo_screenwidth()
-    SCREEN_HEIGHT = _root.winfo_screenheight()
-    _root.destroy()
-except Exception:
-    SCREEN_WIDTH, SCREEN_HEIGHT = 1920, 1080
+def _detect_screen_size():
+    # xrandr's "current WxH" is the full X11 root window / RandR virtual
+    # desktop size -- the same coordinate space pynput's Controller.position
+    # moves in, spanning every monitor, not just one. tkinter's
+    # winfo_screenwidth() was tried here before and silently reported a
+    # single-monitor size (or wasn't even installed), which is why pointer
+    # mode couldn't reach a second monitor.
+    try:
+        output = subprocess.run(
+            ["xrandr", "--query"], capture_output=True, text=True, check=True, timeout=2
+        ).stdout
+        match = re.search(r"current (\d+) x (\d+)", output)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception:
+        pass
+    return 1920, 1080
+
+
+SCREEN_WIDTH, SCREEN_HEIGHT = _detect_screen_size()
 
 # Leap "interaction box" bounds in millimeters, roughly centered above the
-# sensor -- untuned guesses, adjust against your own sensor placement.
+# sensor -- untuned guesses, adjust against your own sensor placement. Note
+# this same mm range now maps across the full multi-monitor width, so
+# horizontal sensitivity is higher than a single-monitor mapping would be --
+# part of the tuning pass, not fixed here.
 LEAP_X_RANGE = (-150.0, 150.0)
 LEAP_Y_RANGE = (100.0, 400.0)
 
