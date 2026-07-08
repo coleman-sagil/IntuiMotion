@@ -45,15 +45,18 @@ class GestureInterpreter:
         engage_dwell=0.4,
         swipe_speed_threshold=600.0,
         swipe_cooldown=0.6,
+        middle_pinch_distance=30.0,
     ):
         self.pinch_threshold = pinch_threshold
         self.grab_threshold = grab_threshold
         self.engage_dwell = engage_dwell
         self.swipe_speed_threshold = swipe_speed_threshold
         self.swipe_cooldown = swipe_cooldown
+        self.middle_pinch_distance = middle_pinch_distance
 
         self.mode = Mode.IDLE
         self._was_pinching = False
+        self._was_middle_pinching = False
         self._was_grabbing = False
         self._engage_pose_since = None
         self._last_swipe_time = 0.0
@@ -97,17 +100,48 @@ class GestureInterpreter:
                         events.append(GestureEvent(swipe_name, hand.type))
 
         elif self.mode == Mode.POINTER:
+            middle_pinching = self._middle_pinch_distance(hand) <= self.middle_pinch_distance
             if grabbing and not self._was_grabbing:
                 self.mode = Mode.IDLE
                 events.append(GestureEvent("fist_exit", hand.type))
-            elif pinching and not self._was_pinching:
-                events.append(GestureEvent("click", hand.type))
+                # A fist mid-pinch would otherwise leave a mouse button
+                # stuck down when pointer mode exits.
+                if self._was_pinching:
+                    events.append(GestureEvent("left_release", hand.type))
+                if self._was_middle_pinching:
+                    events.append(GestureEvent("right_release", hand.type))
+                pinching = False
+                middle_pinching = False
+            else:
+                if pinching and not self._was_pinching:
+                    events.append(GestureEvent("left_press", hand.type))
+                elif not pinching and self._was_pinching:
+                    events.append(GestureEvent("left_release", hand.type))
+
+                if middle_pinching and not self._was_middle_pinching:
+                    events.append(GestureEvent("right_press", hand.type))
+                elif not middle_pinching and self._was_middle_pinching:
+                    events.append(GestureEvent("right_release", hand.type))
+
+            self._was_middle_pinching = middle_pinching
 
         self._was_pinching = pinching
         self._was_grabbing = grabbing
 
         pointer_position = hand.palm.position if self.mode == Mode.POINTER else None
         return self.mode, events, pointer_position
+
+    def _middle_pinch_distance(self, hand):
+        # LeapC's own pinch_strength/pinch_distance are thumb-index only,
+        # there's no equivalent built-in metric for thumb-middle -- computed
+        # by hand the same way the upstream simple_pinching_example.py does
+        # for thumb-index.
+        thumb_tip = hand.thumb.distal.next_joint
+        middle_tip = hand.middle.distal.next_joint
+        dx = thumb_tip.x - middle_tip.x
+        dy = thumb_tip.y - middle_tip.y
+        dz = thumb_tip.z - middle_tip.z
+        return (dx * dx + dy * dy + dz * dz) ** 0.5
 
     def _check_swipe(self, hand, speed):
         if speed < self.swipe_speed_threshold:

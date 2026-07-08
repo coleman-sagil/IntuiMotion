@@ -58,7 +58,8 @@ triggered action.
 |---|---|---|
 | `palm_engage` | open, still hand held ~0.4s | enters pointer mode |
 | `pinch` (idle) | thumb+index pinch while idle | play/pause |
-| `click` (pointer mode) | thumb+index pinch while in pointer mode | left click |
+| `left_press` / `left_release` (pointer mode) | thumb+index pinch start/end while in pointer mode | left mouse button down/up |
+| `right_press` / `right_release` (pointer mode) | thumb+middle pinch start/end while in pointer mode | right mouse button down/up |
 | `fist_exit` | fist while in pointer mode | exits pointer mode |
 | `swipe_up` / `swipe_down` | fast vertical hand motion while idle | volume up / down |
 | `swipe_right` / `swipe_left` | fast horizontal hand motion while idle | next / previous track |
@@ -71,6 +72,20 @@ they're just silent mode transitions.
 
 Cursor position while in pointer mode is driven directly by palm position,
 mapped from a Leap "interaction box" to screen pixels.
+
+Mouse buttons mirror pinch state directly rather than firing a one-shot
+click: press on pinch-start, release on pinch-end. A quick pinch reads as a
+click, a held pinch reads as a drag -- same as a real mouse button, no
+tap-vs-hold timing logic needed. `left_press`/`left_release`/`right_press`/
+`right_release` are wired directly in `main.py`, not configurable, for the
+same reason cursor movement isn't: they need paired press/release calls
+tied to the physical pinch timing, not a single fire-and-forget action.
+
+Right-click uses thumb-to-middle-finger distance rather than LeapC's
+built-in pinch metric, which is thumb-index only. Not yet verified whether
+a normal thumb-index pinch can also trip the middle-finger threshold if the
+fingers are held close together -- worth checking with your actual hand
+during testing.
 
 Add custom macros (keystroke combos or shell commands) by adding entries to
 `config/gestures.yaml` -- see the commented example at the bottom of that

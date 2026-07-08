@@ -10,9 +10,9 @@ pinch:
   action: media
   function: play_pause
 
-click:
-  action: mouse
-  function: click
+# left_press/left_release/right_press/right_release (pointer-mode mouse
+# button hold) and pointer-mode cursor movement are structural, wired
+# directly in main.py -- not configurable here.
 
 swipe_up:
   action: media
