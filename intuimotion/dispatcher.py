@@ -1,6 +1,8 @@
-from .actions import macros, media, mouse
+from .actions import ACTION_MODULES, macros
 
-_ACTION_MODULES = {"mouse": mouse, "media": media}
+# config.py validates every entry (action type known, function resolves,
+# required keys present) before the app starts, so dispatch() can trust the
+# shape of `entry` here rather than re-checking it on every gesture fire.
 
 
 class ActionDispatcher:
@@ -17,9 +19,7 @@ class ActionDispatcher:
             self._run_macro(entry)
             return
 
-        module = _ACTION_MODULES.get(action_type)
-        if module is None:
-            return
+        module = ACTION_MODULES[action_type]
         getattr(module, entry["function"])()
 
     def _run_macro(self, entry):
