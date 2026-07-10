@@ -1,5 +1,7 @@
 import subprocess
 
+from .dry_run import guarded
+
 # Substrings matched case-insensitively against WM_CLASS to decide what NOT
 # to minimize. Covers common Linux terminal emulators, not just whatever's
 # running today -- untuned, easy to extend if it misses one.
@@ -29,6 +31,7 @@ def _is_protected(window_class_output):
     return any(substring.lower() in lowered for substring in PROTECTED_WM_CLASS_SUBSTRINGS)
 
 
+@guarded(lambda: "minimize all windows except terminal")
 def minimize_all_except_terminal():
     for window_id in _list_window_ids():
         if _is_protected(_window_class(window_id)):

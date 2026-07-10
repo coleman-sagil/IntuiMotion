@@ -3,6 +3,8 @@ import subprocess
 
 from pynput.mouse import Button, Controller as MouseController
 
+from .dry_run import guarded
+
 _mouse = MouseController()
 
 
@@ -48,6 +50,7 @@ def map_to_screen(leap_x, leap_y):
     return screen_x, screen_y
 
 
+@guarded(lambda x, y: f"move cursor to ({int(x)}, {int(y)})")
 def move_to(x, y):
     _mouse.position = (int(x), int(y))
 
@@ -56,13 +59,16 @@ def move_to_leap_position(leap_x, leap_y):
     move_to(*map_to_screen(leap_x, leap_y))
 
 
+@guarded(lambda button="left": f"{button} click")
 def click(button="left"):
     _mouse.click(Button.right if button == "right" else Button.left)
 
 
+@guarded(lambda button="left": f"{button} button down")
 def press(button="left"):
     _mouse.press(Button.right if button == "right" else Button.left)
 
 
+@guarded(lambda button="left": f"{button} button up")
 def release(button="left"):
     _mouse.release(Button.right if button == "right" else Button.left)

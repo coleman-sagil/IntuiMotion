@@ -52,6 +52,12 @@ triggered action.
    ```
    python -m intuimotion.main
    ```
+   Or in dry-run mode, which logs every mouse/keyboard/volume/window action
+   instead of actually performing it -- useful for testing gesture changes
+   without your real cursor jumping around or your real volume changing:
+   ```
+   INTUIMOTION_DRY_RUN=1 python -m intuimotion.main
+   ```
 
 ## Gestures (default `config/gestures.yaml`)
 

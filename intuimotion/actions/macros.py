@@ -4,6 +4,8 @@ import sys
 
 from pynput.keyboard import Controller as KeyboardController, Key
 
+from .dry_run import guarded
+
 _keyboard = KeyboardController()
 
 KEY_ALIASES = {
@@ -27,6 +29,7 @@ def _resolve_key(name):
     return KEY_ALIASES.get(name.lower(), name)
 
 
+@guarded(lambda keys: f"press keys {keys}")
 def run_keys(keys):
     resolved = [_resolve_key(k) for k in keys]
     pressed = []
@@ -39,6 +42,7 @@ def run_keys(keys):
             _keyboard.release(key)
 
 
+@guarded(lambda command: f"run shell command: {command}")
 def run_shell(command):
     # config.py validates `command` is a non-empty string at load time, but
     # bad quoting or a nonexistent executable can only be caught by actually
