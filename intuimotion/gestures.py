@@ -2,7 +2,7 @@ import time
 
 OPEN_HAND_MAX_GRAB = 0.3
 OPEN_HAND_MAX_PINCH = 0.3
-STILL_SPEED_MAX = 150.0  # mm/s -- rough "not actively moving" cutoff
+STILL_SPEED_MAX = 150.0  # mm/s — rough "not actively moving" cutoff
 
 
 class Mode:
