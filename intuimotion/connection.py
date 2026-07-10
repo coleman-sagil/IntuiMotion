@@ -2,11 +2,18 @@ import leap
 
 
 class TrackingListener(leap.Listener):
-    """Bridges raw LeapC tracking events to a plain per-hand callback."""
+    """Bridges raw LeapC tracking events to per-hand and per-frame callbacks.
 
-    def __init__(self, on_hand_frame):
+    Most gestures only need one hand at a time (on_hand_frame). A few need
+    every hand in the same frame together -- two-hand gestures, or noticing
+    a hand has stopped appearing at all -- so on_tracking_frame gets the
+    full event.hands list once per frame, in addition to the per-hand calls.
+    """
+
+    def __init__(self, on_hand_frame, on_tracking_frame=None):
         super().__init__()
         self._on_hand_frame = on_hand_frame
+        self._on_tracking_frame = on_tracking_frame
 
     def on_connection_event(self, event):
         print("Connected to the Ultraleap tracking service.")
@@ -29,10 +36,12 @@ class TrackingListener(leap.Listener):
     def on_tracking_event(self, event):
         for hand in event.hands:
             self._on_hand_frame(hand)
+        if self._on_tracking_frame is not None:
+            self._on_tracking_frame(event.hands)
 
 
-def build_connection(on_hand_frame):
-    listener = TrackingListener(on_hand_frame)
+def build_connection(on_hand_frame, on_tracking_frame=None):
+    listener = TrackingListener(on_hand_frame, on_tracking_frame)
     connection = leap.Connection()
     connection.add_listener(listener)
     return connection
