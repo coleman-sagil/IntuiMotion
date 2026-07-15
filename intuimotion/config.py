@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import yaml
 
 from .actions import ACTION_MODULES
 from .actions.macros import is_valid_key_name
 
-DEFAULT_CONFIG_PATH = "config/gestures.yaml"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "gestures.yaml"
 
 
 def load_config(path=DEFAULT_CONFIG_PATH):
