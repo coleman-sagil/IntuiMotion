@@ -75,6 +75,41 @@ def test_fist_exit_requires_sustained_grab_not_a_single_frame():
     assert "left_release" in names
 
 
+def test_exit_grace_suppresses_swipe_right_after_fist_exit():
+    interpreter = GestureInterpreter(
+        engage_dwell=0.0,
+        grab_threshold=0.8,
+        grab_dwell=0.0,
+        exit_grace=0.25,
+        swipe_speed_threshold=500.0,
+    )
+    # Starting clock is deliberately non-zero -- see the swipe_cooldown test
+    # for why 0.0 collides with _last_swipe_time's default sentinel.
+    interpreter.update(FakeHand(), now=100.0)  # engage pointer mode
+    interpreter.update(FakeHand(grab_strength=0.95), now=100.1)  # fist_exit fires here
+
+    # Relaxation motion right after the fist, still inside the grace window.
+    _, events, _ = interpreter.update(
+        FakeHand(palm=FakePalm(velocity=(0, 800, 0))), now=100.2
+    )
+    assert events == []
+
+    # Same motion, but after the grace window has elapsed, fires normally.
+    _, events, _ = interpreter.update(
+        FakeHand(palm=FakePalm(velocity=(0, 800, 0))), now=101.0
+    )
+    assert [e.name for e in events] == ["swipe_up"]
+
+
+def test_exit_grace_does_not_suppress_unrelated_idle_swipes():
+    interpreter = GestureInterpreter(swipe_speed_threshold=500.0, exit_grace=0.25)
+    hand = FakeHand(palm=FakePalm(velocity=(0, 800, 0)))
+
+    _, events, _ = interpreter.update(hand, now=100.0)
+
+    assert [e.name for e in events] == ["swipe_up"]
+
+
 def test_pinch_in_pointer_mode_fires_left_press_then_release():
     interpreter = GestureInterpreter(engage_dwell=0.0, pinch_threshold=0.8)
     open_hand = FakeHand()
