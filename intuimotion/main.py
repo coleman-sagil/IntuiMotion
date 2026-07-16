@@ -3,6 +3,7 @@ import time
 
 import leap
 
+from .actions import mpx_mouse
 from .actions.dry_run import set_enabled as set_dry_run
 from .config import load_config
 from .connection import build_connection
@@ -20,6 +21,11 @@ def run(config_path="config/gestures.yaml", dry_run=None):
 
     config = load_config(config_path)
     pipeline = HandFramePipeline(config)
+
+    if not dry_run:
+        # Two MPX master pointers, one per hand -- real X resources, so
+        # skipped entirely in dry-run (nothing to tear down either, then).
+        mpx_mouse.setup()
 
     connection = build_connection(pipeline.on_hand_frame, pipeline.on_tracking_frame)
     with connection.open():
@@ -40,6 +46,9 @@ def run(config_path="config/gestures.yaml", dry_run=None):
                 time.sleep(1)
         except KeyboardInterrupt:
             print("Stopped.")
+        finally:
+            if not dry_run:
+                mpx_mouse.teardown()
 
 
 if __name__ == "__main__":
