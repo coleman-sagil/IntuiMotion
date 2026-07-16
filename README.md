@@ -71,6 +71,12 @@ triggered action.
 | `swipe_up` / `swipe_down` | fast vertical hand motion while idle | volume up / down |
 | `swipe_right` / `swipe_left` | fast horizontal hand motion while idle | next / previous track |
 
+Idle-only gestures (`pinch`, the four swipes) are briefly suppressed for
+`exit_grace` (0.25s default) right after a `fist_exit`, so your hand
+relaxing out of the fist shape doesn't misfire a volume change or
+play/pause. `palm_engage` is unaffected -- open-still-hand re-engages
+pointer mode at any time, grace window or not.
+
 `palm_engage` and `fist_exit` always drive the internal mode switch itself
 (that part is hardcoded, not configurable) — but like every other gesture
 name, `ActionDispatcher` will also fire whatever action you attach to them in

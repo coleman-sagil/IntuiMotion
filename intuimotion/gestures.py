@@ -49,6 +49,7 @@ class GestureInterpreter:
         grab_threshold=0.85,
         engage_dwell=0.4,
         grab_dwell=0.15,
+        exit_grace=0.25,
         swipe_speed_threshold=600.0,
         swipe_cooldown=0.6,
         middle_pinch_distance=30.0,
@@ -57,6 +58,7 @@ class GestureInterpreter:
         self.grab_threshold = grab_threshold
         self.engage_dwell = engage_dwell
         self.grab_dwell = grab_dwell
+        self.exit_grace = exit_grace
         self.swipe_speed_threshold = swipe_speed_threshold
         self.swipe_cooldown = swipe_cooldown
         self.middle_pinch_distance = middle_pinch_distance
@@ -67,6 +69,7 @@ class GestureInterpreter:
         self._was_grabbing = False
         self._engage_pose_since = None
         self._grab_pose_since = None
+        self._grace_until = 0.0
         self._last_swipe_time = 0.0
         self._last_seen = time.time()
 
@@ -104,13 +107,19 @@ class GestureInterpreter:
                     events.append(GestureEvent("palm_engage", hand.type))
             else:
                 self._engage_pose_since = None
-                if pinching:
-                    if not self._was_pinching:
-                        events.append(GestureEvent("pinch", hand.type))
-                else:
-                    swipe_name = self._check_swipe(hand, speed, now)
-                    if swipe_name:
-                        events.append(GestureEvent(swipe_name, hand.type))
+                # Right after fist_exit, the hand is still physically
+                # relaxing out of the fist shape -- that motion can look
+                # like a swipe or brush past the pinch threshold. Ignore
+                # idle-only gestures for exit_grace so only a genuinely new
+                # gesture, not exit follow-through, fires one.
+                if now >= self._grace_until:
+                    if pinching:
+                        if not self._was_pinching:
+                            events.append(GestureEvent("pinch", hand.type))
+                    else:
+                        swipe_name = self._check_swipe(hand, speed, now)
+                        if swipe_name:
+                            events.append(GestureEvent(swipe_name, hand.type))
 
         elif self.mode == Mode.POINTER:
             middle_pinching = self._middle_pinch_distance(hand) <= self.middle_pinch_distance
@@ -127,6 +136,7 @@ class GestureInterpreter:
             # stays well past this dwell, a pinch-induced spike doesn't.
             if grabbing and now - self._grab_pose_since >= self.grab_dwell:
                 self.mode = Mode.IDLE
+                self._grace_until = now + self.exit_grace
                 events.append(GestureEvent("fist_exit", hand.type))
                 # A fist mid-pinch would otherwise leave a mouse button
                 # stuck down when pointer mode exits.
