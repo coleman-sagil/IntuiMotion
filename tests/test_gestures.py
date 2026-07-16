@@ -34,7 +34,7 @@ def test_open_still_hand_engages_pointer_mode_after_dwell():
 
 
 def test_fist_exits_pointer_mode():
-    interpreter = GestureInterpreter(engage_dwell=0.0, grab_threshold=0.8)
+    interpreter = GestureInterpreter(engage_dwell=0.0, grab_threshold=0.8, grab_dwell=0.0)
     open_hand = FakeHand()
     interpreter.update(open_hand)  # engage pointer mode first
     assert interpreter.mode == Mode.POINTER
@@ -44,6 +44,35 @@ def test_fist_exits_pointer_mode():
 
     assert mode == Mode.IDLE
     assert [e.name for e in events] == ["fist_exit"]
+
+
+def test_fist_exit_requires_sustained_grab_not_a_single_frame():
+    interpreter = GestureInterpreter(
+        engage_dwell=0.0, pinch_threshold=0.8, grab_threshold=0.8, grab_dwell=0.5
+    )
+    interpreter.update(FakeHand(), now=0.0)  # engage pointer mode
+    assert interpreter.mode == Mode.POINTER
+
+    interpreter.update(FakeHand(pinch_strength=0.9), now=0.1)  # start a real pinch/drag
+    assert interpreter._was_pinching
+
+    # A brief grab spike mid-pinch (fingers curling during a firm pinch)
+    # must not exit pointer mode or drop the held button.
+    mode, events, _ = interpreter.update(
+        FakeHand(pinch_strength=0.9, grab_strength=0.9), now=0.15
+    )
+    assert mode == Mode.POINTER
+    assert events == []
+    assert interpreter._was_pinching
+
+    # Once the grab is genuinely sustained past grab_dwell, it does exit.
+    mode, events, _ = interpreter.update(
+        FakeHand(pinch_strength=0.9, grab_strength=0.9), now=0.7
+    )
+    assert mode == Mode.IDLE
+    names = [e.name for e in events]
+    assert "fist_exit" in names
+    assert "left_release" in names
 
 
 def test_pinch_in_pointer_mode_fires_left_press_then_release():
@@ -79,7 +108,11 @@ def test_middle_pinch_in_pointer_mode_fires_right_press_then_release():
 
 def test_fist_mid_pinch_releases_mouse_buttons_instead_of_sticking():
     interpreter = GestureInterpreter(
-        engage_dwell=0.0, pinch_threshold=0.8, grab_threshold=0.8, middle_pinch_distance=30.0
+        engage_dwell=0.0,
+        pinch_threshold=0.8,
+        grab_threshold=0.8,
+        middle_pinch_distance=30.0,
+        grab_dwell=0.0,
     )
     interpreter.update(FakeHand())  # engage pointer mode
     interpreter.update(FakeHand(pinch_strength=0.9, thumb_tip=(0, 0, 0), middle_tip=(10, 0, 0)))

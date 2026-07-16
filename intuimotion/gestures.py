@@ -48,6 +48,7 @@ class GestureInterpreter:
         pinch_threshold=0.85,
         grab_threshold=0.85,
         engage_dwell=0.4,
+        grab_dwell=0.15,
         swipe_speed_threshold=600.0,
         swipe_cooldown=0.6,
         middle_pinch_distance=30.0,
@@ -55,6 +56,7 @@ class GestureInterpreter:
         self.pinch_threshold = pinch_threshold
         self.grab_threshold = grab_threshold
         self.engage_dwell = engage_dwell
+        self.grab_dwell = grab_dwell
         self.swipe_speed_threshold = swipe_speed_threshold
         self.swipe_cooldown = swipe_cooldown
         self.middle_pinch_distance = middle_pinch_distance
@@ -64,6 +66,7 @@ class GestureInterpreter:
         self._was_middle_pinching = False
         self._was_grabbing = False
         self._engage_pose_since = None
+        self._grab_pose_since = None
         self._last_swipe_time = 0.0
         self._last_seen = time.time()
 
@@ -111,7 +114,18 @@ class GestureInterpreter:
 
         elif self.mode == Mode.POINTER:
             middle_pinching = self._middle_pinch_distance(hand) <= self.middle_pinch_distance
-            if grabbing and not self._was_grabbing:
+            if grabbing:
+                if self._grab_pose_since is None:
+                    self._grab_pose_since = now
+            else:
+                self._grab_pose_since = None
+
+            # A firm pinch naturally curls the other fingers too, so
+            # grab_strength can spike past its threshold for a frame or two
+            # mid-pinch. Requiring the grab pose to be held for grab_dwell
+            # (not just seen once) filters that spike out -- a real fist
+            # stays well past this dwell, a pinch-induced spike doesn't.
+            if grabbing and now - self._grab_pose_since >= self.grab_dwell:
                 self.mode = Mode.IDLE
                 events.append(GestureEvent("fist_exit", hand.type))
                 # A fist mid-pinch would otherwise leave a mouse button
