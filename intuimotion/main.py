@@ -4,7 +4,7 @@ import time
 import leap
 
 from .actions.dry_run import set_enabled as set_dry_run
-from .config import load_config
+from .config import DEFAULT_CONFIG_PATH, load_config
 from .connection import build_connection
 from .pipeline import HandFramePipeline
 
@@ -13,7 +13,7 @@ def _dry_run_from_env():
     return os.environ.get("INTUIMOTION_DRY_RUN", "").lower() in ("1", "true", "yes")
 
 
-def run(config_path="config/gestures.yaml", dry_run=None):
+def run(config_path=DEFAULT_CONFIG_PATH, dry_run=None):
     if dry_run is None:
         dry_run = _dry_run_from_env()
     set_dry_run(dry_run)
