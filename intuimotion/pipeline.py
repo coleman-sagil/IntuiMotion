@@ -1,6 +1,6 @@
 import os
 
-from .actions import mouse, windows
+from .actions import mpx_mouse, windows
 from .dispatcher import ActionDispatcher
 from .gestures import GestureInterpreter, TwoHandGestureDetector
 
@@ -13,11 +13,13 @@ _DEBUG_HAND = os.environ.get("INTUIMOTION_DEBUG_HAND", "").lower() in ("1", "tru
 # release on pinch-end) rather than being a configurable one-shot action --
 # tap-vs-drag falls out of how long the pinch is held, same as a real mouse
 # button, so this is structural like cursor movement, not dispatcher-routed.
+# Each hand drives its own MPX cursor, so the event's own hand_type (which
+# hand actually pinched) picks which cursor clicks -- not a fixed one.
 _MOUSE_BUTTON_EVENTS = {
-    "left_press": lambda: mouse.press("left"),
-    "left_release": lambda: mouse.release("left"),
-    "right_press": lambda: mouse.press("right"),
-    "right_release": lambda: mouse.release("right"),
+    "left_press": lambda hand_type: mpx_mouse.press(hand_type, "left"),
+    "left_release": lambda hand_type: mpx_mouse.release(hand_type, "left"),
+    "right_press": lambda hand_type: mpx_mouse.press(hand_type, "right"),
+    "right_release": lambda hand_type: mpx_mouse.release(hand_type, "right"),
 }
 
 _TWO_HAND_EVENTS = {
@@ -53,7 +55,7 @@ class HandFramePipeline:
         mode, events, pointer_position = interpreter.update(hand)
         self._handle_events(mode, events)
         if pointer_position is not None:
-            mouse.move_to_leap_position(pointer_position.x, pointer_position.y)
+            mpx_mouse.move_to_leap_position(hand.type, pointer_position.x, pointer_position.y)
 
     def on_tracking_frame(self, hands):
         # Runs for every hand with state, not just ones present this frame --
@@ -74,6 +76,6 @@ class HandFramePipeline:
             print(f"[{mode}] {event.name} ({event.hand_type})")
             mouse_action = _MOUSE_BUTTON_EVENTS.get(event.name)
             if mouse_action is not None:
-                mouse_action()
+                mouse_action(event.hand_type)
             else:
                 self.dispatcher.dispatch(event.name)

@@ -324,6 +324,21 @@ def test_check_staleness_does_nothing_if_hand_seen_recently():
     assert events == []
 
 
+def test_check_staleness_events_carry_the_tracked_hand_type():
+    # Each hand drives its own MPX cursor, so a stale-release event has to
+    # say which hand it belonged to -- routing a release with no hand
+    # identity (or the wrong one) would leave one cursor's button stuck
+    # down, or release the other hand's button instead.
+    interpreter = GestureInterpreter(engage_dwell=0.0, pinch_threshold=0.8)
+    interpreter.update(FakeHand(hand_type="Left"), now=0.0)
+    interpreter.update(FakeHand(hand_type="Left", pinch_strength=0.9), now=0.1)
+
+    events = interpreter.check_staleness(now=1.1)
+
+    assert [e.name for e in events] == ["left_release"]
+    assert events[0].hand_type == "Left"
+
+
 def _blade_hand(hand_type):
     return FakeHand(
         hand_type=hand_type,

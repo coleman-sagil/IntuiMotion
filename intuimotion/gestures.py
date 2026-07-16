@@ -72,6 +72,7 @@ class GestureInterpreter:
         self._grace_until = 0.0
         self._last_swipe_time = 0.0
         self._last_seen = time.time()
+        self._hand_type = None
 
     def update(self, hand, now=None):
         """Process one hand's frame data.
@@ -85,6 +86,7 @@ class GestureInterpreter:
         if now is None:
             now = time.time()
         self._last_seen = now
+        self._hand_type = hand.type
         events = []
         pinch_strength = hand.pinch_strength
         grab_strength = hand.grab_strength
@@ -183,6 +185,11 @@ class GestureInterpreter:
         again for that hand, and a pressed mouse button would stay stuck
         down indefinitely. Call this once per tracking frame for every
         interpreter, not just the ones with hands present in that frame.
+
+        Events carry the hand_type from this interpreter's last update()
+        (not the current frame -- there isn't one, that's the point) so a
+        stale release still routes to the correct hand's MPX cursor instead
+        of an undifferentiated one.
         """
         if now is None:
             now = time.time()
@@ -191,10 +198,10 @@ class GestureInterpreter:
 
         events = []
         if self._was_pinching:
-            events.append(GestureEvent("left_release", None))
+            events.append(GestureEvent("left_release", self._hand_type))
             self._was_pinching = False
         if self._was_middle_pinching:
-            events.append(GestureEvent("right_release", None))
+            events.append(GestureEvent("right_release", self._hand_type))
             self._was_middle_pinching = False
         return events
 
