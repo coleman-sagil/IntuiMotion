@@ -48,6 +48,8 @@ class GestureInterpreter:
         pinch_threshold=0.85,
         grab_threshold=0.85,
         engage_dwell=0.4,
+        grab_dwell=0.15,
+        exit_grace=0.25,
         swipe_speed_threshold=600.0,
         swipe_cooldown=0.6,
         middle_pinch_distance=30.0,
@@ -55,6 +57,8 @@ class GestureInterpreter:
         self.pinch_threshold = pinch_threshold
         self.grab_threshold = grab_threshold
         self.engage_dwell = engage_dwell
+        self.grab_dwell = grab_dwell
+        self.exit_grace = exit_grace
         self.swipe_speed_threshold = swipe_speed_threshold
         self.swipe_cooldown = swipe_cooldown
         self.middle_pinch_distance = middle_pinch_distance
@@ -64,8 +68,11 @@ class GestureInterpreter:
         self._was_middle_pinching = False
         self._was_grabbing = False
         self._engage_pose_since = None
+        self._grab_pose_since = None
+        self._grace_until = 0.0
         self._last_swipe_time = 0.0
         self._last_seen = time.time()
+        self._hand_type = None
 
     def update(self, hand, now=None):
         """Process one hand's frame data.
@@ -79,6 +86,7 @@ class GestureInterpreter:
         if now is None:
             now = time.time()
         self._last_seen = now
+        self._hand_type = hand.type
         events = []
         pinch_strength = hand.pinch_strength
         grab_strength = hand.grab_strength
@@ -101,18 +109,36 @@ class GestureInterpreter:
                     events.append(GestureEvent("palm_engage", hand.type))
             else:
                 self._engage_pose_since = None
-                if pinching:
-                    if not self._was_pinching:
-                        events.append(GestureEvent("pinch", hand.type))
-                else:
-                    swipe_name = self._check_swipe(hand, speed, now)
-                    if swipe_name:
-                        events.append(GestureEvent(swipe_name, hand.type))
+                # Right after fist_exit, the hand is still physically
+                # relaxing out of the fist shape -- that motion can look
+                # like a swipe or brush past the pinch threshold. Ignore
+                # idle-only gestures for exit_grace so only a genuinely new
+                # gesture, not exit follow-through, fires one.
+                if now >= self._grace_until:
+                    if pinching:
+                        if not self._was_pinching:
+                            events.append(GestureEvent("pinch", hand.type))
+                    else:
+                        swipe_name = self._check_swipe(hand, speed, now)
+                        if swipe_name:
+                            events.append(GestureEvent(swipe_name, hand.type))
 
         elif self.mode == Mode.POINTER:
             middle_pinching = self._middle_pinch_distance(hand) <= self.middle_pinch_distance
-            if grabbing and not self._was_grabbing:
+            if grabbing:
+                if self._grab_pose_since is None:
+                    self._grab_pose_since = now
+            else:
+                self._grab_pose_since = None
+
+            # A firm pinch naturally curls the other fingers too, so
+            # grab_strength can spike past its threshold for a frame or two
+            # mid-pinch. Requiring the grab pose to be held for grab_dwell
+            # (not just seen once) filters that spike out -- a real fist
+            # stays well past this dwell, a pinch-induced spike doesn't.
+            if grabbing and now - self._grab_pose_since >= self.grab_dwell:
                 self.mode = Mode.IDLE
+                self._grace_until = now + self.exit_grace
                 events.append(GestureEvent("fist_exit", hand.type))
                 # A fist mid-pinch would otherwise leave a mouse button
                 # stuck down when pointer mode exits.
@@ -159,6 +185,11 @@ class GestureInterpreter:
         again for that hand, and a pressed mouse button would stay stuck
         down indefinitely. Call this once per tracking frame for every
         interpreter, not just the ones with hands present in that frame.
+
+        Events carry the hand_type from this interpreter's last update()
+        (not the current frame -- there isn't one, that's the point) so a
+        stale release still routes to the correct hand's MPX cursor instead
+        of an undifferentiated one.
         """
         if now is None:
             now = time.time()
@@ -167,10 +198,10 @@ class GestureInterpreter:
 
         events = []
         if self._was_pinching:
-            events.append(GestureEvent("left_release", None))
+            events.append(GestureEvent("left_release", self._hand_type))
             self._was_pinching = False
         if self._was_middle_pinching:
-            events.append(GestureEvent("right_release", None))
+            events.append(GestureEvent("right_release", self._hand_type))
             self._was_middle_pinching = False
         return events
 

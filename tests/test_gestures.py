@@ -34,7 +34,7 @@ def test_open_still_hand_engages_pointer_mode_after_dwell():
 
 
 def test_fist_exits_pointer_mode():
-    interpreter = GestureInterpreter(engage_dwell=0.0, grab_threshold=0.8)
+    interpreter = GestureInterpreter(engage_dwell=0.0, grab_threshold=0.8, grab_dwell=0.0)
     open_hand = FakeHand()
     interpreter.update(open_hand)  # engage pointer mode first
     assert interpreter.mode == Mode.POINTER
@@ -44,6 +44,70 @@ def test_fist_exits_pointer_mode():
 
     assert mode == Mode.IDLE
     assert [e.name for e in events] == ["fist_exit"]
+
+
+def test_fist_exit_requires_sustained_grab_not_a_single_frame():
+    interpreter = GestureInterpreter(
+        engage_dwell=0.0, pinch_threshold=0.8, grab_threshold=0.8, grab_dwell=0.5
+    )
+    interpreter.update(FakeHand(), now=0.0)  # engage pointer mode
+    assert interpreter.mode == Mode.POINTER
+
+    interpreter.update(FakeHand(pinch_strength=0.9), now=0.1)  # start a real pinch/drag
+    assert interpreter._was_pinching
+
+    # A brief grab spike mid-pinch (fingers curling during a firm pinch)
+    # must not exit pointer mode or drop the held button.
+    mode, events, _ = interpreter.update(
+        FakeHand(pinch_strength=0.9, grab_strength=0.9), now=0.15
+    )
+    assert mode == Mode.POINTER
+    assert events == []
+    assert interpreter._was_pinching
+
+    # Once the grab is genuinely sustained past grab_dwell, it does exit.
+    mode, events, _ = interpreter.update(
+        FakeHand(pinch_strength=0.9, grab_strength=0.9), now=0.7
+    )
+    assert mode == Mode.IDLE
+    names = [e.name for e in events]
+    assert "fist_exit" in names
+    assert "left_release" in names
+
+
+def test_exit_grace_suppresses_swipe_right_after_fist_exit():
+    interpreter = GestureInterpreter(
+        engage_dwell=0.0,
+        grab_threshold=0.8,
+        grab_dwell=0.0,
+        exit_grace=0.25,
+        swipe_speed_threshold=500.0,
+    )
+    # Starting clock is deliberately non-zero -- see the swipe_cooldown test
+    # for why 0.0 collides with _last_swipe_time's default sentinel.
+    interpreter.update(FakeHand(), now=100.0)  # engage pointer mode
+    interpreter.update(FakeHand(grab_strength=0.95), now=100.1)  # fist_exit fires here
+
+    # Relaxation motion right after the fist, still inside the grace window.
+    _, events, _ = interpreter.update(
+        FakeHand(palm=FakePalm(velocity=(0, 800, 0))), now=100.2
+    )
+    assert events == []
+
+    # Same motion, but after the grace window has elapsed, fires normally.
+    _, events, _ = interpreter.update(
+        FakeHand(palm=FakePalm(velocity=(0, 800, 0))), now=101.0
+    )
+    assert [e.name for e in events] == ["swipe_up"]
+
+
+def test_exit_grace_does_not_suppress_unrelated_idle_swipes():
+    interpreter = GestureInterpreter(swipe_speed_threshold=500.0, exit_grace=0.25)
+    hand = FakeHand(palm=FakePalm(velocity=(0, 800, 0)))
+
+    _, events, _ = interpreter.update(hand, now=100.0)
+
+    assert [e.name for e in events] == ["swipe_up"]
 
 
 def test_pinch_in_pointer_mode_fires_left_press_then_release():
@@ -79,7 +143,11 @@ def test_middle_pinch_in_pointer_mode_fires_right_press_then_release():
 
 def test_fist_mid_pinch_releases_mouse_buttons_instead_of_sticking():
     interpreter = GestureInterpreter(
-        engage_dwell=0.0, pinch_threshold=0.8, grab_threshold=0.8, middle_pinch_distance=30.0
+        engage_dwell=0.0,
+        pinch_threshold=0.8,
+        grab_threshold=0.8,
+        middle_pinch_distance=30.0,
+        grab_dwell=0.0,
     )
     interpreter.update(FakeHand())  # engage pointer mode
     interpreter.update(FakeHand(pinch_strength=0.9, thumb_tip=(0, 0, 0), middle_tip=(10, 0, 0)))
@@ -254,6 +322,21 @@ def test_check_staleness_does_nothing_if_hand_seen_recently():
     events = interpreter.check_staleness(now=0.2)
 
     assert events == []
+
+
+def test_check_staleness_events_carry_the_tracked_hand_type():
+    # Each hand drives its own MPX cursor, so a stale-release event has to
+    # say which hand it belonged to -- routing a release with no hand
+    # identity (or the wrong one) would leave one cursor's button stuck
+    # down, or release the other hand's button instead.
+    interpreter = GestureInterpreter(engage_dwell=0.0, pinch_threshold=0.8)
+    interpreter.update(FakeHand(hand_type="Left"), now=0.0)
+    interpreter.update(FakeHand(hand_type="Left", pinch_strength=0.9), now=0.1)
+
+    events = interpreter.check_staleness(now=1.1)
+
+    assert [e.name for e in events] == ["left_release"]
+    assert events[0].hand_type == "Left"
 
 
 def _blade_hand(hand_type):

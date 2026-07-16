@@ -67,9 +67,15 @@ triggered action.
 | `pinch` (idle) | thumb+index pinch while idle | play/pause |
 | `left_press` / `left_release` (pointer mode) | thumb+index pinch start/end while in pointer mode | left mouse button down/up |
 | `right_press` / `right_release` (pointer mode) | thumb+middle pinch start/end while in pointer mode | right mouse button down/up |
-| `fist_exit` | fist while in pointer mode | exits pointer mode |
+| `fist_exit` | fist held ~0.15s in pointer mode | exits pointer mode |
 | `swipe_up` / `swipe_down` | fast vertical hand motion while idle | volume up / down |
 | `swipe_right` / `swipe_left` | fast horizontal hand motion while idle | next / previous track |
+
+Idle-only gestures (`pinch`, the four swipes) are briefly suppressed for
+`exit_grace` (0.25s default) right after a `fist_exit`, so your hand
+relaxing out of the fist shape doesn't misfire a volume change or
+play/pause. `palm_engage` is unaffected -- open-still-hand re-engages
+pointer mode at any time, grace window or not.
 
 `palm_engage` and `fist_exit` always drive the internal mode switch itself
 (that part is hardcoded, not configurable) — but like every other gesture
@@ -105,7 +111,11 @@ file. No code changes needed for a new keystroke or shell macro.
   zones until adjusted against this sensor's actual placement and your real
   hand range.
 - **Pinch/grab/swipe/dwell thresholds** (`GestureInterpreter.__init__` in
-  `intuimotion/gestures.py`) are untuned starting points.
+  `intuimotion/gestures.py`) are untuned starting points. `grab_dwell`
+  (0.15s) is a fixed value chosen from one live debug session — a firm
+  pinch curls the other fingers enough to briefly spike `grab_strength`
+  past its threshold, so `fist_exit` requires the fist pose to be held for
+  `grab_dwell` before firing, rather than a single frame.
 - **No smoothing/deadzone** on cursor movement yet — raw palm position maps
   straight to screen pixels every frame.
 - **Two hands both in pointer mode at once will fight over cursor position**
