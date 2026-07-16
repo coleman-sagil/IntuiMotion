@@ -1,6 +1,13 @@
+import os
+
 from .actions import mouse, windows
 from .dispatcher import ActionDispatcher
 from .gestures import GestureInterpreter, TwoHandGestureDetector
+
+# Per-frame pinch/grab/velocity dump for live threshold tuning against real
+# hand data -- separate from INTUIMOTION_DRY_RUN since you may want to watch
+# real numbers while real actions are still firing.
+_DEBUG_HAND = os.environ.get("INTUIMOTION_DEBUG_HAND", "").lower() in ("1", "true", "yes")
 
 # Mouse button state mirrors pinch state directly (press on pinch-start,
 # release on pinch-end) rather than being a configurable one-shot action --
@@ -36,6 +43,13 @@ class HandFramePipeline:
 
     def on_hand_frame(self, hand):
         interpreter = self.interpreters.setdefault(hand.type, GestureInterpreter())
+        if _DEBUG_HAND:
+            vx, vy, vz = hand.palm.velocity
+            print(
+                f"[debug:{interpreter.mode}] {hand.type} "
+                f"pinch={hand.pinch_strength:.2f} grab={hand.grab_strength:.2f} "
+                f"vel=({vx:.0f},{vy:.0f},{vz:.0f})"
+            )
         mode, events, pointer_position = interpreter.update(hand)
         self._handle_events(mode, events)
         if pointer_position is not None:
