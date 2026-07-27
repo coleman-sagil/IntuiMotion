@@ -409,3 +409,35 @@ def test_two_hand_detector_requires_palms_close_together():
     )
 
     assert detector.update([_blade_hand("Left"), far], now=0.0) is None
+
+
+def test_is_pointing_pose_true_when_only_index_extended():
+    from intuimotion.gestures import is_pointing_pose
+    hand = FakeHand(index_extended=True, middle_extended=False, ring_extended=False, pinky_extended=False)
+    assert is_pointing_pose(hand)
+
+
+def test_is_pointing_pose_false_when_all_extended_open_hand():
+    from intuimotion.gestures import is_pointing_pose
+    hand = FakeHand(index_extended=True, middle_extended=True, ring_extended=True, pinky_extended=True)
+    assert not is_pointing_pose(hand)
+
+
+def test_is_pointing_pose_false_when_index_curled():
+    from intuimotion.gestures import is_pointing_pose
+    hand = FakeHand(index_extended=False, middle_extended=False, ring_extended=False, pinky_extended=False)
+    assert not is_pointing_pose(hand)
+
+
+def test_is_pointing_pose_ignores_thumb_state():
+    from intuimotion.gestures import is_pointing_pose
+    pointing_thumb_out = FakeHand(
+        thumb_extended=True, index_extended=True,
+        middle_extended=False, ring_extended=False, pinky_extended=False,
+    )
+    pointing_thumb_in = FakeHand(
+        thumb_extended=False, index_extended=True,
+        middle_extended=False, ring_extended=False, pinky_extended=False,
+    )
+    assert is_pointing_pose(pointing_thumb_out)
+    assert is_pointing_pose(pointing_thumb_in)

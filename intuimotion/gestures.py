@@ -222,6 +222,23 @@ class GestureInterpreter:
         return "swipe_up" if vy > 0 else "swipe_down"
 
 
+def is_pointing_pose(hand):
+    """True if index is extended and middle/ring/pinky are curled -- the
+    classic "point" gesture, distinct from an open hand (all extended) or
+    a fist/pinch (none extended). Thumb state is deliberately ignored: a
+    natural pointing hand can have the thumb extended, tucked, or resting
+    against the palm depending on the person, and none of that changes
+    what the index finger is doing. Used by calibration.py's corner-
+    pointing ritual, not by the normal idle/pointer gesture flow above.
+    """
+    return (
+        hand.index.is_extended
+        and not hand.middle.is_extended
+        and not hand.ring.is_extended
+        and not hand.pinky.is_extended
+    )
+
+
 def _vector_length(vector):
     x, y, z = vector
     return (x * x + y * y + z * z) ** 0.5

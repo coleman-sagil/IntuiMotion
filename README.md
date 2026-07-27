@@ -104,6 +104,36 @@ Add custom macros (keystroke combos or shell commands) by adding entries to
 `config/gestures.yaml` — see the commented example at the bottom of that
 file. No code changes needed for a new keystroke or shell macro.
 
+## Screen calibration (new, 2026-07-27, needs real-world validation)
+
+`intuimotion/calibration.py` implements the corner-pointing calibration
+ritual: point at a screen corner, walk backward while staying pointed at
+it, close a fist to solidify that corner, repeat for all 4 corners
+(`top_left`, `top_right`, `bottom_right`, `bottom_left`, in that order).
+Once all 4 are solidified, `solve_screen_plane` computes the screen's
+actual corner points in Leap-space.
+
+Requires the screen's real physical width/height in mm (`ScreenCalibrator`
+takes them as required constructor args) -- confirmed via testing that
+the ray geometry alone (right angles + equal sides + coplanar, no
+absolute scale) is NOT enough to uniquely determine the rectangle; two
+different rectangles can satisfy those same relative-shape constraints
+for the same 4 rays. Known size is what actually pins down scale and
+position.
+
+Covers `ScreenMode.MONITOR` and `ScreenMode.TV` (same flat-rectangle
+geometry). `ScreenMode.AR` and `ScreenMode.CAR` are socketed in
+`screen_modes.py` but explicitly not implemented -- much later per
+Matthew, and AR in particular is likely a genuinely different problem
+(no physical screen surface to calibrate against at all).
+
+16 tests, including two that validate the plane/corner solver against
+known synthetic 3D ground-truth rectangles (not just mocked gesture
+logic) -- see `tests/test_calibration.py`. Not yet run against a real
+calibration session; every dwell/sample-count/span threshold is an
+untuned starting point, same status the rest of this project's gesture
+thresholds had before real-hardware tuning.
+
 ## Known gaps (debugging/tuning, deferred on purpose)
 
 - **Screen mapping bounds** (`LEAP_X_RANGE`/`LEAP_Y_RANGE` in

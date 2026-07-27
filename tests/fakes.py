@@ -30,8 +30,9 @@ class FakeBone:
 
 
 class FakeDigit:
-    def __init__(self, tip=(0, 0, 0)):
+    def __init__(self, tip=(0, 0, 0), is_extended=False):
         self.distal = FakeBone(tip)
+        self.is_extended = is_extended
 
 
 class FakeHand:
@@ -46,13 +47,18 @@ class FakeHand:
         index_tip=(0, 0, 0),
         ring_tip=(0, 0, 0),
         pinky_tip=(0, 0, 0),
+        thumb_extended=False,
+        index_extended=False,
+        middle_extended=False,
+        ring_extended=False,
+        pinky_extended=False,
     ):
         self.pinch_strength = pinch_strength
         self.grab_strength = grab_strength
         self.palm = palm or FakePalm()
         self.type = hand_type
-        self.thumb = FakeDigit(thumb_tip)
-        self.middle = FakeDigit(middle_tip)
-        self.index = FakeDigit(index_tip)
-        self.ring = FakeDigit(ring_tip)
-        self.pinky = FakeDigit(pinky_tip)
+        self.thumb = FakeDigit(thumb_tip, thumb_extended)
+        self.middle = FakeDigit(middle_tip, middle_extended)
+        self.index = FakeDigit(index_tip, index_extended)
+        self.ring = FakeDigit(ring_tip, ring_extended)
+        self.pinky = FakeDigit(pinky_tip, pinky_extended)

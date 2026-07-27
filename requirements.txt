@@ -1,3 +1,4 @@
 pynput
 pyyaml
 python-xlib
+scipy
