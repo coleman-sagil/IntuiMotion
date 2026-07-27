@@ -104,7 +104,32 @@ Add custom macros (keystroke combos or shell commands) by adding entries to
 `config/gestures.yaml` — see the commented example at the bottom of that
 file. No code changes needed for a new keystroke or shell macro.
 
-## Screen calibration (new, 2026-07-27, needs real-world validation)
+## Boundary calibration (2026-07-27, supersedes the ritual below for touch-based screens)
+
+`intuimotion/boundary_calibration.py` implements Matthew's revised
+calibration UX: hold both pointer fingers out at the two top corners
+until locked in place (hold-still, no fist), then trace both fingers down
+along the screen's real physical edges to the bottom corners, holding
+still again to lock the end point. Because the fingers stay on/near the
+actual screen surface throughout, this measures each corner as a real 3D
+position directly -- no known screen width/height needed, unlike the
+ray-walking technique below, which is ambiguous without it (confirmed via
+testing, see that section). `EdgeTracer.fitted_line()` smooths the raw
+locked points against the full traced path via PCA, for robustness
+against real hand tremor (validated on a synthetic noisy trace).
+
+Recommended technique for MONITOR/TV. The older ray-walking approach
+below is kept, not deleted -- it solves a genuinely different problem
+(a position from a single ray with no scale reference) that may still
+matter for a future non-touch scenario (e.g. AR, where there's nothing
+physical to trace).
+
+10 tests, including a noisy-trace recovery test and a regression guard
+for a real design risk (holding still right after the start-lock, before
+any real movement, must not immediately re-trigger the end-lock -- this
+is what MIN_TRACE_SPAN_MM guards against).
+
+## Screen calibration (ray-walking technique, needs real-world validation)
 
 `intuimotion/calibration.py` implements the corner-pointing calibration
 ritual: point at a screen corner, walk backward while staying pointed at
