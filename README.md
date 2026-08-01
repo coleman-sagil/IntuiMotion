@@ -159,6 +159,17 @@ calibration session; every dwell/sample-count/span threshold is an
 untuned starting point, same status the rest of this project's gesture
 thresholds had before real-hardware tuning.
 
+## Camera-based screen detection (merged from DeepLens-VT, 2026-08-01)
+
+`intuimotion/camera.py` + `intuimotion/screen_detector.py`: OpenCV-based
+webcam capture and screen/rectangle detection, absorbed from the
+standalone `DeepLens-VT` prototype once that project's camera + screen
+detection moved onto the same machine as the rest of IntuiMotion. Not yet
+wired into the live gesture pipeline or run against a real camera — see
+`docs/CAMERA_SCREEN_DETECTION.md` for what was and wasn't ported, and the
+still-open coordinate-fusion design needed to actually turn this into a
+"point at a real screen" feature.
+
 ## Known gaps (debugging/tuning, deferred on purpose)
 
 - **Screen mapping bounds** (`LEAP_X_RANGE`/`LEAP_Y_RANGE` in
