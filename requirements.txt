@@ -2,3 +2,4 @@ pynput
 pyyaml
 python-xlib
 scipy
+opencv-python-headless
