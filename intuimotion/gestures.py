@@ -9,10 +9,22 @@ FINGER_TOGETHER_MAX_GAP = 15.0  # mm, max gap between adjacent fingertips for a 
 PALMS_TOGETHER_MAX_DISTANCE = 150.0  # mm, max distance between the two palms
 TWO_HAND_HOLD_DWELL = 1.2  # seconds — deliberately long, this triggers minimizing every window
 
+# Mode.MOUSE (relative touchpad) tuning -- untuned starting points, same
+# status as every other threshold in this file until checked against real
+# hand data. The sensor lies flat on the desk facing up, so X (left/right)
+# and Z (toward/away from the user) form the natural "resting on a pad"
+# plane -- the same plane your hand already glides across on a real
+# touchpad or desk-mouse. Y (height above the sensor) becomes the clutch
+# axis: lift your hand out of MOUSE_ACTIVE_Y_RANGE to reposition without
+# moving the cursor, same as lifting a real mouse/finger to re-center it,
+# then settle back into the band to resume tracking.
+MOUSE_ACTIVE_Y_RANGE = (60.0, 180.0)  # mm above sensor
+
 
 class Mode:
     IDLE = "idle"
     POINTER = "pointer"
+    MOUSE = "mouse"
 
 
 class GestureEvent:
@@ -53,6 +65,8 @@ class GestureInterpreter:
         swipe_speed_threshold=600.0,
         swipe_cooldown=0.6,
         middle_pinch_distance=30.0,
+        engage_mode=Mode.POINTER,
+        mouse_active_y_range=MOUSE_ACTIVE_Y_RANGE,
     ):
         self.pinch_threshold = pinch_threshold
         self.grab_threshold = grab_threshold
@@ -62,6 +76,13 @@ class GestureInterpreter:
         self.swipe_speed_threshold = swipe_speed_threshold
         self.swipe_cooldown = swipe_cooldown
         self.middle_pinch_distance = middle_pinch_distance
+        # Which mode palm_engage drops into -- settable live (e.g. from a UI
+        # mode switcher) via this plain attribute. Only affects the *next*
+        # engage transition, not whatever mode a hand is already in, same as
+        # picking up a real mouse vs. a real touchpad only matters the next
+        # time you put your hand down.
+        self.engage_mode = engage_mode
+        self.mouse_active_y_range = mouse_active_y_range
 
         self.mode = Mode.IDLE
         self._was_pinching = False
@@ -73,15 +94,30 @@ class GestureInterpreter:
         self._last_swipe_time = 0.0
         self._last_seen = time.time()
         self._hand_type = None
+        # Reference (x, z) for Mode.MOUSE's relative delta -- None means "not
+        # currently tracking" (just engaged, or hand lifted out of the active
+        # Y band), so the next in-band frame seeds a fresh reference instead
+        # of computing a delta against a stale/unrelated position.
+        self._touchpad_reference = None
 
     def update(self, hand, now=None):
         """Process one hand's frame data.
 
-        Returns (mode, events, pointer_position). `events` is a list of
-        GestureEvent. `pointer_position` is the raw palm Vector to map to
-        screen coordinates, set only while in pointer mode. `now` defaults
-        to time.time() but can be passed explicitly for deterministic tests
-        of the dwell timer and swipe cooldown.
+        Returns (mode, events, pointer_position, pointer_delta). `events` is
+        a list of GestureEvent. `pointer_position` is the raw palm Vector to
+        map to screen coordinates, set only while in Mode.POINTER.
+        `pointer_delta` is a raw (dx, dz) tuple in Leap mm space -- the
+        frame-to-frame change in hand position along the desk plane -- set
+        only while in Mode.MOUSE and only when the hand is within
+        `mouse_active_y_range` (the "resting on the pad" clutch band); it is
+        `None` while lifted out of that band (clutch disengaged, no cursor
+        motion) and `(0.0, 0.0)` on the first in-band frame after engaging
+        or re-entering the band (no reference yet, so no jump). Neither
+        output is pre-scaled to screen pixels -- that mapping belongs to the
+        action layer (mouse.py/mpx_mouse.py), same separation the existing
+        absolute pointer_position/map_to_screen split already uses. `now`
+        defaults to time.time() but can be passed explicitly for
+        deterministic tests of the dwell timer and swipe cooldown.
         """
         if now is None:
             now = time.time()
@@ -104,8 +140,9 @@ class GestureInterpreter:
                 if self._engage_pose_since is None:
                     self._engage_pose_since = now
                 if now - self._engage_pose_since >= self.engage_dwell:
-                    self.mode = Mode.POINTER
+                    self.mode = self.engage_mode
                     self._engage_pose_since = None
+                    self._touchpad_reference = None
                     events.append(GestureEvent("palm_engage", hand.type))
             else:
                 self._engage_pose_since = None
@@ -123,7 +160,9 @@ class GestureInterpreter:
                         if swipe_name:
                             events.append(GestureEvent(swipe_name, hand.type))
 
-        elif self.mode == Mode.POINTER:
+        elif self.mode in (Mode.POINTER, Mode.MOUSE):
+            # Pinch/grab/click handling is identical for both active modes --
+            # they only differ in what movement data update() returns below.
             middle_pinching = self._middle_pinch_distance(hand) <= self.middle_pinch_distance
             if grabbing:
                 if self._grab_pose_since is None:
@@ -164,8 +203,35 @@ class GestureInterpreter:
         self._was_pinching = pinching
         self._was_grabbing = grabbing
 
-        pointer_position = hand.palm.position if self.mode == Mode.POINTER else None
-        return self.mode, events, pointer_position
+        pointer_position = None
+        pointer_delta = None
+        if self.mode == Mode.POINTER:
+            pointer_position = hand.palm.position
+        elif self.mode == Mode.MOUSE:
+            pointer_delta = self._touchpad_delta(hand)
+
+        return self.mode, events, pointer_position, pointer_delta
+
+    def _touchpad_delta(self, hand):
+        """Relative (dx, dz) motion in Leap mm space for Mode.MOUSE, or None
+        while the hand is lifted out of `mouse_active_y_range` (clutch
+        disengaged -- see the module docstring comment above
+        MOUSE_ACTIVE_Y_RANGE for why X/Z is the tracking plane and Y is the
+        lift axis).
+        """
+        x, y, z = hand.palm.position
+        low, high = self.mouse_active_y_range
+        if not (low <= y <= high):
+            self._touchpad_reference = None
+            return None
+
+        if self._touchpad_reference is None:
+            self._touchpad_reference = (x, z)
+            return (0.0, 0.0)
+
+        ref_x, ref_z = self._touchpad_reference
+        self._touchpad_reference = (x, z)
+        return (x - ref_x, z - ref_z)
 
     def _middle_pinch_distance(self, hand):
         # LeapC's own pinch_strength/pinch_distance are thumb-index only,

@@ -2,7 +2,7 @@ import os
 
 from .actions import mpx_mouse, windows
 from .dispatcher import ActionDispatcher
-from .gestures import GestureInterpreter, TwoHandGestureDetector
+from .gestures import GestureInterpreter, Mode, TwoHandGestureDetector
 
 # Per-frame pinch/grab/velocity dump for live threshold tuning against real
 # hand data -- separate from INTUIMOTION_DRY_RUN since you may want to watch
@@ -33,7 +33,7 @@ class HandFramePipeline:
     connection -- feed it hands/frames directly.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, ui_bridge=None):
         self.dispatcher = ActionDispatcher(config)
         # One interpreter per hand (keyed by LeapC's HandType) rather than
         # one shared instance -- sharing state meant a left and right hand
@@ -42,9 +42,35 @@ class HandFramePipeline:
         # doing the clicking).
         self.interpreters = {}
         self.two_hand_detector = TwoHandGestureDetector()
+        # Optional -- the daemon runs headless with ui_bridge=None and must
+        # keep working exactly as before. Every emit below is guarded, and
+        # nothing in this module imports Qt, so the UI stays a strictly
+        # optional dependency of the pipeline rather than a hard one.
+        self.ui_bridge = ui_bridge
+        # Which mode a hand engages into. Held here (not just per
+        # interpreter) so interpreters created later for hands that show up
+        # mid-session inherit the current preference.
+        self.engage_mode = Mode.POINTER
+
+    def set_engage_mode(self, mode):
+        """Switch which mode palm_engage drops hands into (Mode.POINTER or
+        Mode.MOUSE).
+
+        Applies to already-tracked hands too, not just interpreters created
+        after this call -- otherwise flipping the UI's mode switch would do
+        nothing until the user pulled their hand out of the tracking volume
+        and put it back. Per gestures.py's design this only takes effect on
+        a hand's *next* engage; a hand already in a mode stays there until
+        it fist-exits.
+        """
+        self.engage_mode = mode
+        for interpreter in self.interpreters.values():
+            interpreter.engage_mode = mode
 
     def on_hand_frame(self, hand):
-        interpreter = self.interpreters.setdefault(hand.type, GestureInterpreter())
+        interpreter = self.interpreters.setdefault(
+            hand.type, GestureInterpreter(engage_mode=self.engage_mode)
+        )
         if _DEBUG_HAND:
             vx, vy, vz = hand.palm.velocity
             print(
@@ -52,10 +78,15 @@ class HandFramePipeline:
                 f"pinch={hand.pinch_strength:.2f} grab={hand.grab_strength:.2f} "
                 f"vel=({vx:.0f},{vy:.0f},{vz:.0f})"
             )
-        mode, events, pointer_position = interpreter.update(hand)
+        mode, events, pointer_position, pointer_delta = interpreter.update(hand)
+        if self.ui_bridge is not None:
+            self.ui_bridge.mode_changed.emit(mode)
+            self.ui_bridge.activity.emit()
         self._handle_events(mode, events)
         if pointer_position is not None:
             mpx_mouse.move_to_leap_position(hand.type, pointer_position.x, pointer_position.y)
+        if pointer_delta is not None:
+            mpx_mouse.move_by_leap_delta(hand.type, pointer_delta[0], pointer_delta[1])
 
     def on_tracking_frame(self, hands):
         # Runs for every hand with state, not just ones present this frame --
@@ -74,6 +105,13 @@ class HandFramePipeline:
     def _handle_events(self, mode, events):
         for event in events:
             print(f"[{mode}] {event.name} ({event.hand_type})")
+            if self.ui_bridge is not None:
+                # Normalized to a plain string here rather than passing the
+                # raw HandType through -- the UI just displays it, and a
+                # real LeapC enum wouldn't survive a Qt signal typed for str.
+                self.ui_bridge.gesture_fired.emit(
+                    event.name, str(mpx_mouse._hand_key(event.hand_type))
+                )
             mouse_action = _MOUSE_BUTTON_EVENTS.get(event.name)
             if mouse_action is not None:
                 mouse_action(event.hand_type)

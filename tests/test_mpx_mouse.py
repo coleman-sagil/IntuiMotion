@@ -25,11 +25,15 @@ def _reset_dry_run():
 class _FakePointer:
     def __init__(self):
         self.moved_to = []
+        self.moved_by = []
         self.pressed = []
         self.released = []
 
     def move_to(self, x, y):
         self.moved_to.append((x, y))
+
+    def move_by(self, dx, dy):
+        self.moved_by.append((dx, dy))
 
     def press(self, button):
         self.pressed.append(button)
@@ -82,6 +86,34 @@ def test_move_to_leap_position_maps_before_routing(monkeypatch, fake_pointers):
     assert fake_pointers["Right"].moved_to == []
 
 
+def test_move_by_routes_to_the_hand_specific_pointer_only(fake_pointers):
+    mpx_mouse.move_by("Left", 5, -7)
+
+    assert fake_pointers["Left"].moved_by == [(5, -7)]
+    assert fake_pointers["Right"].moved_by == []
+    # Relative motion must not go out as an absolute warp.
+    assert fake_pointers["Left"].moved_to == []
+
+
+def test_move_by_accepts_enum_like_hand_type_and_rounds_offsets(fake_pointers):
+    mpx_mouse.move_by(_FakeHandType("Right"), 1.6, -1.4)
+
+    assert fake_pointers["Right"].moved_by == [(2, -1)]
+    assert fake_pointers["Left"].moved_by == []
+
+
+def test_move_by_leap_delta_scales_before_routing(monkeypatch, fake_pointers):
+    monkeypatch.setattr(mpx_mouse, "MOUSE_SENSITIVITY", 3.0)
+
+    mpx_mouse.move_by_leap_delta("Left", 2.0, -4.0)
+
+    # Same scaling and same dz sign convention as mouse.move_by_leap_delta --
+    # the constant is imported from there, not redefined here, so both cursor
+    # paths stay in step.
+    assert fake_pointers["Left"].moved_by == [(6, -12)]
+    assert fake_pointers["Right"].moved_by == []
+
+
 def test_press_and_release_route_independently_per_hand(fake_pointers):
     mpx_mouse.press("Right", "left")
     mpx_mouse.press("Left", "right")
@@ -112,9 +144,11 @@ def test_dry_run_skips_the_real_pointer_for_move_press_release(fake_pointers):
     dry_run.set_enabled(True)
 
     mpx_mouse.move_to("Left", 1, 2)
+    mpx_mouse.move_by("Left", 1, 2)
     mpx_mouse.press("Left", "left")
     mpx_mouse.release("Left", "left")
 
     assert fake_pointers["Left"].moved_to == []
+    assert fake_pointers["Left"].moved_by == []
     assert fake_pointers["Left"].pressed == []
     assert fake_pointers["Left"].released == []

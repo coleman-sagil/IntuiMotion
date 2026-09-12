@@ -3,3 +3,4 @@ pyyaml
 python-xlib
 scipy
 opencv-python-headless
+PyQt6

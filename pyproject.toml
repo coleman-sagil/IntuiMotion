@@ -7,10 +7,10 @@ name = "intuimotion"
 version = "0.1.0"
 description = "Gesture-driven mouse, media, and macro control for the Leap Motion Controller"
 requires-python = ">=3.10"
-dependencies = ["pynput", "pyyaml", "python-xlib", "numpy", "scipy", "opencv-python-headless"]
+dependencies = ["pynput", "pyyaml", "python-xlib", "numpy", "scipy", "opencv-python-headless", "PyQt6"]
 
 [project.scripts]
 intuimotion = "intuimotion.main:run"
 
 [tool.setuptools]
-packages = ["intuimotion", "intuimotion.actions"]
+packages = ["intuimotion", "intuimotion.actions", "intuimotion.ui"]

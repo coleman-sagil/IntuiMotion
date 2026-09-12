@@ -37,6 +37,15 @@ SCREEN_WIDTH, SCREEN_HEIGHT = _detect_screen_size()
 LEAP_X_RANGE = (-150.0, 150.0)
 LEAP_Y_RANGE = (100.0, 400.0)
 
+# Screen pixels per Leap millimeter of *relative* hand motion, for
+# Mode.MOUSE's touchpad-style movement. Same status as LEAP_X_RANGE/
+# LEAP_Y_RANGE above: an untuned starting point, picked to feel roughly like
+# a mid-sensitivity touchpad and never checked against real hand data. Needs
+# a tuning pass on real hardware -- and unlike the absolute mapping, this one
+# has no interaction-box bounds to clamp it, so a bad value just makes the
+# cursor feel sluggish or twitchy rather than unreachable.
+MOUSE_SENSITIVITY = 4.0
+
 
 def _clamp(value, low, high):
     return max(low, min(high, value))
@@ -57,6 +66,37 @@ def move_to(x, y):
 
 def move_to_leap_position(leap_x, leap_y):
     move_to(*map_to_screen(leap_x, leap_y))
+
+
+@guarded(lambda dx, dy: f"move cursor by ({int(round(dx))}, {int(round(dy))})")
+def move_by(dx, dy):
+    # pynput's Controller.move() is a *relative* move -- it reads .position
+    # and adds the offsets -- unlike assigning .position, which is absolute
+    # (confirmed against the installed pynput's Controller.move source, not
+    # just its docstring). Rounding rather than truncating so small
+    # per-frame deltas don't all bias toward zero and stall the cursor.
+    _mouse.move(int(round(dx)), int(round(dy)))
+
+
+def move_by_leap_delta(dx_mm, dz_mm):
+    """Mode.MOUSE counterpart to move_to_leap_position.
+
+    Consumes GestureInterpreter's `pointer_delta`: one frame's (dx, dz)
+    change in hand position along the desk plane, in Leap millimeters,
+    already clutch-gated by the interpreter. All this layer does is scale mm
+    to pixels and pick the axis signs, the same split as the absolute
+    pointer_position/map_to_screen pair above.
+    """
+    # Sign convention -- a first guess, easy to flip during real-hardware
+    # tuning, same status as everything else in this file's mapping layer:
+    # Leap's +z increases *toward* the user, so pushing the hand away from
+    # you yields a negative dz, and passing it straight through yields a
+    # negative screen dy, i.e. the cursor moves up. Push away = up, pull
+    # back = down, which is how a physical touchpad behaves. If it comes out
+    # inverted on the real sensor, flip the sign on the dz term below -- and
+    # on the identical line in mpx_mouse.move_by_leap_delta, which mirrors
+    # this convention so both cursor paths behave the same.
+    move_by(dx_mm * MOUSE_SENSITIVITY, dz_mm * MOUSE_SENSITIVITY)
 
 
 @guarded(lambda button="left": f"{button} click")

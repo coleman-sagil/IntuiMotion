@@ -23,11 +23,18 @@ Leap Motion Controller (USB)
   -> intuimotion.gestures.GestureInterpreter      raw hand data -> discrete gesture events + mode
   -> intuimotion.dispatcher.ActionDispatcher      gesture name -> config-mapped action
   -> intuimotion.actions.{mouse,media,macros}     pynput mouse / media keys / keystrokes / shell
+
+intuimotion.pipeline.HandFramePipeline (optional ui_bridge)
+  -> intuimotion.ui.bridge.UiBridge               3 Qt signals, GUI-thread affinity
+  -> intuimotion.ui.{app,hud}                     tray icon + HUD overlay
 ```
 
-Pointer-mode cursor movement bypasses the dispatcher and is wired directly in
-`main.py`, since it's continuous per-frame motion rather than a discrete
-triggered action.
+Cursor movement (both absolute pointer position and relative mouse deltas)
+bypasses the dispatcher and is wired directly in `pipeline.py`, since it's
+continuous per-frame motion rather than a discrete triggered action.
+
+`intuimotion/ui/` is the only place PyQt6 is imported, and it's imported
+lazily — nothing below it imports Qt, and nothing in it imports the pipeline.
 
 ## Setup
 
@@ -63,11 +70,11 @@ triggered action.
 
 | Gesture | Trigger | Default action |
 |---|---|---|
-| `palm_engage` | open, still hand held ~0.4s | enters pointer mode |
+| `palm_engage` | open, still hand held ~0.4s | enters the selected engage mode (pointer or mouse) |
 | `pinch` (idle) | thumb+index pinch while idle | play/pause |
-| `left_press` / `left_release` (pointer mode) | thumb+index pinch start/end while in pointer mode | left mouse button down/up |
-| `right_press` / `right_release` (pointer mode) | thumb+middle pinch start/end while in pointer mode | right mouse button down/up |
-| `fist_exit` | fist held ~0.15s in pointer mode | exits pointer mode |
+| `left_press` / `left_release` (active mode) | thumb+index pinch start/end while in pointer or mouse mode | left mouse button down/up |
+| `right_press` / `right_release` (active mode) | thumb+middle pinch start/end while in pointer or mouse mode | right mouse button down/up |
+| `fist_exit` | fist held ~0.15s in pointer or mouse mode | exits to idle |
 | `swipe_up` / `swipe_down` | fast vertical hand motion while idle | volume up / down |
 | `swipe_right` / `swipe_left` | fast horizontal hand motion while idle | next / previous track |
 
@@ -103,6 +110,75 @@ during testing.
 Add custom macros (keystroke combos or shell commands) by adding entries to
 `config/gestures.yaml` — see the commented example at the bottom of that
 file. No code changes needed for a new keystroke or shell macro.
+
+## Mouse mode (relative touchpad)
+
+A second active mode alongside pointer mode. `palm_engage` drops a hand into
+whichever of the two is currently selected (`Mode.POINTER` by default; switch
+it from the tray menu, or call `pipeline.set_engage_mode(...)`). Pinch/click
+and `fist_exit` behave identically in both — the modes differ only in how
+hand motion becomes cursor motion.
+
+| | Pointer (`Mode.POINTER`) | Mouse (`Mode.MOUSE`) |
+|---|---|---|
+| Mapping | absolute — palm position maps into a fixed interaction box | relative — per-frame change in hand position |
+| Plane | X (left/right) + Y (up/down) | X (left/right) + Z (toward/away) |
+| Cursor when hand is still | parked at the mapped position | doesn't move |
+| Reachability | limited by `LEAP_X_RANGE`/`LEAP_Y_RANGE` | unbounded; re-clutch to keep going |
+| Tuning constant | `LEAP_X_RANGE`/`LEAP_Y_RANGE` | `MOUSE_SENSITIVITY` (px per Leap mm) |
+
+The sensor lies flat facing up, so X/Z is the "resting on a pad" plane your
+hand already glides across on a real touchpad, and Y (height above the
+sensor) becomes the clutch axis. While the palm is inside
+`MOUSE_ACTIVE_Y_RANGE` (`gestures.py`, 60–180mm) the cursor tracks hand
+motion; lift out of that band and `pointer_delta` goes `None`, so you can
+reposition your hand without moving the cursor — same as lifting a real mouse
+to re-center it. Settling back into the band seeds a fresh reference point and
+emits a `(0, 0)` delta first, so re-entering never jumps the cursor.
+
+Sign convention (a first guess, easy to flip during hardware tuning): Leap's
++z increases toward the user, so pushing the hand away moves the cursor up and
+pulling back moves it down.
+
+The mm→pixel scaling lives in the action layer
+(`mouse.move_by_leap_delta` / `mpx_mouse.move_by_leap_delta`), mirroring the
+existing `pointer_position`/`map_to_screen` split — `gestures.py` only ever
+emits raw Leap millimeters. `MOUSE_SENSITIVITY` is defined once in
+`actions/mouse.py` and imported by `mpx_mouse.py`, so both cursor paths tune
+together.
+
+## Tray icon + HUD
+
+`intuimotion/ui/` is a PyQt6 system tray icon plus a small HUD overlay, built
+by default when you run the daemon.
+
+```
+INTUIMOTION_NO_UI=1 python -m intuimotion.main
+```
+falls back to the old headless loop: no bridge, no tray, no HUD, and Qt is
+never imported at all — so no-display boxes and CI stay runnable without
+PyQt6 installed.
+
+The tray menu picks which mode `palm_engage` drops you into (Pointer or
+Mouse, exclusive), toggles dry-run live, and quits the daemon. Per
+`gestures.py`'s design, switching mode only takes effect on a hand's *next*
+engage; a hand already in a mode stays there until it fist-exits. The tray
+glyph is drawn at runtime with QPainter (no icon asset in the repo) and is
+tinted by the current mode — grey idle, blue pointer, green mouse. Left-click
+the tray icon to peek at the HUD without waiting for a hand.
+
+The HUD is a frameless, click-through, always-on-top panel in the bottom-right
+of the primary screen's available area, showing the live mode and the last
+gesture that fired. It auto-hides ~2.5s (`AUTO_HIDE_MS`) after the last signal
+from the pipeline, which is the only available "hand left the sensor" cue —
+LeapC has no hand-lost event (see `GestureInterpreter.check_staleness`).
+
+`pipeline.HandFramePipeline` stays UI-framework-agnostic: it talks to the UI
+only through a duck-typed optional `ui_bridge` (`ui/bridge.py`) carrying three
+Qt signals — `mode_changed(str)`, `gesture_fired(str, str)`, `activity()`.
+With `ui_bridge=None` the pipeline behaves exactly as it did before. Signals
+are emitted from the Leap tracking thread; the bridge is constructed on the
+GUI thread, so PyQt6 queues every delivery onto the GUI thread automatically.
 
 ## Boundary calibration (2026-07-27, supersedes the ritual below for touch-based screens)
 
@@ -182,8 +258,27 @@ still-open coordinate-fusion design needed to actually turn this into a
   pinch curls the other fingers enough to briefly spike `grab_strength`
   past its threshold, so `fist_exit` requires the fist pose to be held for
   `grab_dwell` before firing, rather than a single frame.
+- **Mouse-mode tuning constants** (`MOUSE_SENSITIVITY` in
+  `intuimotion/actions/mouse.py`, `MOUSE_ACTIVE_Y_RANGE` in
+  `intuimotion/gestures.py`) are untuned guesses, exactly the same status as
+  `LEAP_X_RANGE`/`LEAP_Y_RANGE` above — picked to feel roughly like a
+  mid-sensitivity touchpad and a comfortable hand-resting height, never
+  checked against real hand data. Unlike the absolute mapping there are no
+  interaction-box bounds to clamp `MOUSE_SENSITIVITY`, so a bad value reads
+  as sluggish or twitchy rather than unreachable. The dz sign convention
+  (push away = cursor up) is a guess too, and flipping it means flipping it
+  in both `mouse.py` and `mpx_mouse.py`.
+- **The tray/HUD has never been driven by the real sensor** — only by fake
+  hand data, since the Ultraleap tracking service isn't installed on this
+  machine yet. The UI itself was smoke-tested live against a real X server
+  (tray icon shows, HUD shows/auto-hides, all three bridge signals arrive,
+  tray mode switching reaches `set_engage_mode`), but every frame behind it
+  came from `tests/fakes.py`, so HUD legibility, auto-hide feel, and the
+  cost of emitting three signals per frame at ~100 frames/s with a real hand
+  in view are all unverified.
 - **No smoothing/deadzone** on cursor movement yet — raw palm position maps
-  straight to screen pixels every frame.
+  straight to screen pixels every frame, and mouse mode passes raw per-frame
+  deltas through with no filtering either.
 - **Two hands both in pointer mode at once will fight over cursor position**
   (each hand gets its own `GestureInterpreter` and mode now, but there's only
   one OS cursor — whichever hand's frame is processed last each tick wins).

@@ -7,8 +7,8 @@ def test_pinch_fires_once_per_pinch_while_idle():
     interpreter = GestureInterpreter(pinch_threshold=0.8)
     hand = FakeHand(pinch_strength=0.9)
 
-    _, events_first, _ = interpreter.update(hand)
-    _, events_second, _ = interpreter.update(hand)
+    _, events_first, _, _ = interpreter.update(hand)
+    _, events_second, _, _ = interpreter.update(hand)
 
     assert [e.name for e in events_first] == ["pinch"]
     assert events_second == []
@@ -18,7 +18,7 @@ def test_swipe_detected_from_palm_velocity():
     interpreter = GestureInterpreter(swipe_speed_threshold=500.0)
     hand = FakeHand(palm=FakePalm(velocity=(800, 0, 0)))
 
-    _, events, _ = interpreter.update(hand)
+    _, events, _, _ = interpreter.update(hand)
 
     assert [e.name for e in events] == ["swipe_right"]
 
@@ -27,7 +27,7 @@ def test_open_still_hand_engages_pointer_mode_after_dwell():
     interpreter = GestureInterpreter(engage_dwell=0.0)
     hand = FakeHand()
 
-    mode, events, _ = interpreter.update(hand)
+    mode, events, _, _ = interpreter.update(hand)
 
     assert mode == Mode.POINTER
     assert [e.name for e in events] == ["palm_engage"]
@@ -40,7 +40,7 @@ def test_fist_exits_pointer_mode():
     assert interpreter.mode == Mode.POINTER
 
     fist = FakeHand(grab_strength=0.95)
-    mode, events, _ = interpreter.update(fist)
+    mode, events, _, _ = interpreter.update(fist)
 
     assert mode == Mode.IDLE
     assert [e.name for e in events] == ["fist_exit"]
@@ -58,7 +58,7 @@ def test_fist_exit_requires_sustained_grab_not_a_single_frame():
 
     # A brief grab spike mid-pinch (fingers curling during a firm pinch)
     # must not exit pointer mode or drop the held button.
-    mode, events, _ = interpreter.update(
+    mode, events, _, _ = interpreter.update(
         FakeHand(pinch_strength=0.9, grab_strength=0.9), now=0.15
     )
     assert mode == Mode.POINTER
@@ -66,7 +66,7 @@ def test_fist_exit_requires_sustained_grab_not_a_single_frame():
     assert interpreter._was_pinching
 
     # Once the grab is genuinely sustained past grab_dwell, it does exit.
-    mode, events, _ = interpreter.update(
+    mode, events, _, _ = interpreter.update(
         FakeHand(pinch_strength=0.9, grab_strength=0.9), now=0.7
     )
     assert mode == Mode.IDLE
@@ -89,13 +89,13 @@ def test_exit_grace_suppresses_swipe_right_after_fist_exit():
     interpreter.update(FakeHand(grab_strength=0.95), now=100.1)  # fist_exit fires here
 
     # Relaxation motion right after the fist, still inside the grace window.
-    _, events, _ = interpreter.update(
+    _, events, _, _ = interpreter.update(
         FakeHand(palm=FakePalm(velocity=(0, 800, 0))), now=100.2
     )
     assert events == []
 
     # Same motion, but after the grace window has elapsed, fires normally.
-    _, events, _ = interpreter.update(
+    _, events, _, _ = interpreter.update(
         FakeHand(palm=FakePalm(velocity=(0, 800, 0))), now=101.0
     )
     assert [e.name for e in events] == ["swipe_up"]
@@ -105,7 +105,7 @@ def test_exit_grace_does_not_suppress_unrelated_idle_swipes():
     interpreter = GestureInterpreter(swipe_speed_threshold=500.0, exit_grace=0.25)
     hand = FakeHand(palm=FakePalm(velocity=(0, 800, 0)))
 
-    _, events, _ = interpreter.update(hand, now=100.0)
+    _, events, _, _ = interpreter.update(hand, now=100.0)
 
     assert [e.name for e in events] == ["swipe_up"]
 
@@ -116,13 +116,13 @@ def test_pinch_in_pointer_mode_fires_left_press_then_release():
     interpreter.update(open_hand)
     assert interpreter.mode == Mode.POINTER
 
-    _, press_events, _ = interpreter.update(FakeHand(pinch_strength=0.9))
+    _, press_events, _, _ = interpreter.update(FakeHand(pinch_strength=0.9))
     assert [e.name for e in press_events] == ["left_press"]
 
-    _, held_events, _ = interpreter.update(FakeHand(pinch_strength=0.9))
+    _, held_events, _, _ = interpreter.update(FakeHand(pinch_strength=0.9))
     assert held_events == []
 
-    _, release_events, _ = interpreter.update(FakeHand(pinch_strength=0.0))
+    _, release_events, _, _ = interpreter.update(FakeHand(pinch_strength=0.0))
     assert [e.name for e in release_events] == ["left_release"]
 
 
@@ -133,11 +133,11 @@ def test_middle_pinch_in_pointer_mode_fires_right_press_then_release():
     assert interpreter.mode == Mode.POINTER
 
     close_hand = FakeHand(thumb_tip=(0, 0, 0), middle_tip=(10, 0, 0))
-    _, press_events, _ = interpreter.update(close_hand)
+    _, press_events, _, _ = interpreter.update(close_hand)
     assert [e.name for e in press_events] == ["right_press"]
 
     far_hand = FakeHand(thumb_tip=(0, 0, 0), middle_tip=(1000, 0, 0))
-    _, release_events, _ = interpreter.update(far_hand)
+    _, release_events, _, _ = interpreter.update(far_hand)
     assert [e.name for e in release_events] == ["right_release"]
 
 
@@ -154,7 +154,7 @@ def test_fist_mid_pinch_releases_mouse_buttons_instead_of_sticking():
     assert interpreter._was_pinching and interpreter._was_middle_pinching
 
     fist = FakeHand(grab_strength=0.95)
-    mode, events, _ = interpreter.update(fist)
+    mode, events, _, _ = interpreter.update(fist)
 
     assert mode == Mode.IDLE
     names = [e.name for e in events]
@@ -171,7 +171,7 @@ def test_swipe_is_suppressed_while_a_pinch_is_held():
     still_pinching_and_moving = FakeHand(
         pinch_strength=0.9, palm=FakePalm(velocity=(800, 0, 0))
     )
-    _, events, _ = interpreter.update(still_pinching_and_moving)
+    _, events, _, _ = interpreter.update(still_pinching_and_moving)
 
     assert events == []
 
@@ -180,7 +180,7 @@ def test_swipe_ignores_push_pull_motion_toward_sensor():
     interpreter = GestureInterpreter(swipe_speed_threshold=500.0)
     hand = FakeHand(palm=FakePalm(velocity=(0, 0, 800)))
 
-    _, events, _ = interpreter.update(hand)
+    _, events, _, _ = interpreter.update(hand)
 
     assert events == []
 
@@ -189,7 +189,7 @@ def test_swipe_left_detected_from_negative_x_velocity():
     interpreter = GestureInterpreter(swipe_speed_threshold=500.0)
     hand = FakeHand(palm=FakePalm(velocity=(-800, 0, 0)))
 
-    _, events, _ = interpreter.update(hand)
+    _, events, _, _ = interpreter.update(hand)
 
     assert [e.name for e in events] == ["swipe_left"]
 
@@ -198,7 +198,7 @@ def test_swipe_up_detected_from_positive_y_velocity():
     interpreter = GestureInterpreter(swipe_speed_threshold=500.0)
     hand = FakeHand(palm=FakePalm(velocity=(0, 800, 0)))
 
-    _, events, _ = interpreter.update(hand)
+    _, events, _, _ = interpreter.update(hand)
 
     assert [e.name for e in events] == ["swipe_up"]
 
@@ -207,7 +207,7 @@ def test_swipe_down_detected_from_negative_y_velocity():
     interpreter = GestureInterpreter(swipe_speed_threshold=500.0)
     hand = FakeHand(palm=FakePalm(velocity=(0, -800, 0)))
 
-    _, events, _ = interpreter.update(hand)
+    _, events, _, _ = interpreter.update(hand)
 
     assert [e.name for e in events] == ["swipe_down"]
 
@@ -218,13 +218,13 @@ def test_swipe_cooldown_suppresses_second_swipe_too_soon():
 
     # Starting clock is deliberately non-zero: _last_swipe_time defaults to
     # 0.0, and a test clock starting at 0.0 would collide with that sentinel.
-    _, first_events, _ = interpreter.update(hand, now=100.0)
+    _, first_events, _, _ = interpreter.update(hand, now=100.0)
     assert [e.name for e in first_events] == ["swipe_right"]
 
-    _, second_events, _ = interpreter.update(hand, now=100.2)
+    _, second_events, _, _ = interpreter.update(hand, now=100.2)
     assert second_events == []
 
-    _, third_events, _ = interpreter.update(hand, now=100.6)
+    _, third_events, _, _ = interpreter.update(hand, now=100.6)
     assert [e.name for e in third_events] == ["swipe_right"]
 
 
@@ -232,15 +232,15 @@ def test_engage_dwell_requires_sustained_hold_not_a_single_frame():
     interpreter = GestureInterpreter(engage_dwell=1.0)
     hand = FakeHand()
 
-    mode, events, _ = interpreter.update(hand, now=0.0)
+    mode, events, _, _ = interpreter.update(hand, now=0.0)
     assert mode == Mode.IDLE
     assert events == []
 
-    mode, events, _ = interpreter.update(hand, now=0.5)
+    mode, events, _, _ = interpreter.update(hand, now=0.5)
     assert mode == Mode.IDLE
     assert events == []
 
-    mode, events, _ = interpreter.update(hand, now=1.0)
+    mode, events, _, _ = interpreter.update(hand, now=1.0)
     assert mode == Mode.POINTER
     assert [e.name for e in events] == ["palm_engage"]
 
@@ -252,7 +252,7 @@ def test_engage_dwell_resets_if_pose_breaks_before_dwell_completes():
 
     interpreter.update(open_hand, now=0.0)
     interpreter.update(pinching_hand, now=0.5)  # pose broken -- timer should reset
-    mode, events, _ = interpreter.update(open_hand, now=1.0)  # only 0s into a fresh hold
+    mode, events, _, _ = interpreter.update(open_hand, now=1.0)  # only 0s into a fresh hold
 
     assert mode == Mode.IDLE
     assert events == []
@@ -265,11 +265,11 @@ def test_middle_pinch_distance_accounts_for_y_and_z_not_just_x():
     # Thumb and middle share x -- if the distance calculation ignored y/z,
     # this would wrongly read as "together".
     far_in_y = FakeHand(thumb_tip=(0, 0, 0), middle_tip=(0, 1000, 0))
-    _, events, _ = interpreter.update(far_in_y)
+    _, events, _, _ = interpreter.update(far_in_y)
     assert events == []
 
     close_in_z = FakeHand(thumb_tip=(0, 0, 0), middle_tip=(0, 0, 10))
-    _, events, _ = interpreter.update(close_in_z)
+    _, events, _, _ = interpreter.update(close_in_z)
     assert [e.name for e in events] == ["right_press"]
 
 
@@ -277,7 +277,7 @@ def test_pointer_position_is_none_while_idle():
     interpreter = GestureInterpreter()
     hand = FakeHand(palm=FakePalm(position=(10, 20, 30)))
 
-    _, _, pointer_position = interpreter.update(hand)
+    _, _, pointer_position, _ = interpreter.update(hand)
 
     assert pointer_position is None
 
@@ -286,7 +286,7 @@ def test_pointer_position_tracks_palm_while_in_pointer_mode():
     interpreter = GestureInterpreter(engage_dwell=0.0)
     hand = FakeHand(palm=FakePalm(position=(10, 20, 30)))
 
-    _, _, pointer_position = interpreter.update(hand)
+    _, _, pointer_position, _ = interpreter.update(hand)
 
     assert interpreter.mode == Mode.POINTER
     assert (pointer_position.x, pointer_position.y, pointer_position.z) == (10, 20, 30)
@@ -297,9 +297,154 @@ def test_pointer_position_still_set_during_a_held_drag():
     interpreter.update(FakeHand())  # engage
 
     dragging_hand = FakeHand(pinch_strength=0.9, palm=FakePalm(position=(5, 6, 7)))
-    _, _, pointer_position = interpreter.update(dragging_hand)
+    _, _, pointer_position, _ = interpreter.update(dragging_hand)
 
     assert (pointer_position.x, pointer_position.y, pointer_position.z) == (5, 6, 7)
+
+
+# --- Mode.MOUSE (relative touchpad) -------------------------------------
+#
+# The default mouse_active_y_range is (60, 180) mm, so every "hand resting
+# on the pad" fake below sits at y=120 -- comfortably inside the band. A
+# bare FakeHand() defaults to palm position (0, 0, 0), which is *outside*
+# the band, so these tests always pass an explicit palm.
+
+
+def _pad_hand(position=(0, 120, 0), **kwargs):
+    """Open, still hand at `position` -- inside the default active Y band."""
+    return FakeHand(palm=FakePalm(position=position), **kwargs)
+
+
+def test_default_engage_mode_is_pointer_not_mouse():
+    # Guards against a silent regression if the engage_mode default is ever
+    # flipped -- absolute pointer mode stays the out-of-the-box behaviour.
+    interpreter = GestureInterpreter(engage_dwell=0.0)
+    assert interpreter.engage_mode == Mode.POINTER
+
+    mode, events, pointer_position, pointer_delta = interpreter.update(_pad_hand())
+
+    assert mode == Mode.POINTER
+    assert [e.name for e in events] == ["palm_engage"]
+    assert pointer_position is not None
+    assert pointer_delta is None
+
+
+def test_open_still_hand_engages_mouse_mode_when_engage_mode_is_mouse():
+    interpreter = GestureInterpreter(engage_mode=Mode.MOUSE, engage_dwell=0.0)
+
+    mode, events, pointer_position, _ = interpreter.update(_pad_hand(), now=0.0)
+
+    assert mode == Mode.MOUSE
+    assert [e.name for e in events] == ["palm_engage"]
+    assert pointer_position is None  # absolute position is POINTER-only
+
+
+def test_mouse_pointer_delta_is_zero_on_the_first_frame_after_engaging():
+    interpreter = GestureInterpreter(engage_mode=Mode.MOUSE, engage_dwell=0.0)
+
+    mode, _, _, pointer_delta = interpreter.update(_pad_hand((10, 120, 20)), now=0.0)
+
+    assert mode == Mode.MOUSE
+    # Reference just seeded -- no delta yet, so the cursor mustn't jump.
+    assert pointer_delta == (0.0, 0.0)
+
+
+def test_mouse_pointer_delta_matches_palm_movement_between_frames():
+    interpreter = GestureInterpreter(engage_mode=Mode.MOUSE, engage_dwell=0.0)
+    first, second = (10, 120, 20), (35, 120, -5)
+
+    interpreter.update(_pad_hand(first), now=0.0)  # seeds the reference
+    mode, _, _, pointer_delta = interpreter.update(_pad_hand(second), now=0.1)
+
+    assert mode == Mode.MOUSE
+    # Raw Leap millimetres, not screen pixels -- scaling belongs to the
+    # action layer, same as pointer_position/map_to_screen.
+    assert pointer_delta == (second[0] - first[0], second[2] - first[2])
+
+
+def test_mouse_pointer_delta_is_none_while_hand_is_lifted_out_of_active_band():
+    interpreter = GestureInterpreter(engage_mode=Mode.MOUSE, engage_dwell=0.0)
+    interpreter.update(_pad_hand((10, 120, 20)), now=0.0)
+    interpreter.update(_pad_hand((20, 120, 20)), now=0.1)
+
+    # Lifted well above the top of the default (60, 180) band -- clutch
+    # disengaged, so no cursor motion even though we're still in MOUSE mode.
+    lifted = _pad_hand((200, 400, 200))
+    mode, _, _, pointer_delta = interpreter.update(lifted, now=0.2)
+
+    assert mode == Mode.MOUSE
+    assert pointer_delta is None
+
+
+def test_mouse_pointer_delta_restarts_from_zero_after_returning_to_the_band():
+    interpreter = GestureInterpreter(engage_mode=Mode.MOUSE, engage_dwell=0.0)
+    interpreter.update(_pad_hand((10, 120, 20)), now=0.0)
+    interpreter.update(_pad_hand((20, 120, 20)), now=0.1)
+
+    _, _, _, lifted_delta = interpreter.update(_pad_hand((300, 400, 300)), now=0.2)
+    assert lifted_delta is None
+
+    # Back down on the pad, far from where the hand lifted off. The first
+    # in-band frame seeds a fresh reference instead of measuring against the
+    # stale pre-lift position, so there's no jump.
+    back_down = (300, 120, 300)
+    mode, _, _, reentry_delta = interpreter.update(_pad_hand(back_down), now=0.3)
+    assert mode == Mode.MOUSE
+    assert reentry_delta == (0.0, 0.0)
+
+    # The frame after that tracks normally again.
+    moved = (310, 120, 295)
+    _, _, _, pointer_delta = interpreter.update(_pad_hand(moved), now=0.4)
+    assert pointer_delta == (moved[0] - back_down[0], moved[2] - back_down[2])
+
+
+def test_fist_exits_mouse_mode():
+    interpreter = GestureInterpreter(
+        engage_mode=Mode.MOUSE, engage_dwell=0.0, grab_threshold=0.8, grab_dwell=0.1
+    )
+    interpreter.update(_pad_hand(), now=0.0)  # engage mouse mode first
+    assert interpreter.mode == Mode.MOUSE
+
+    fist = _pad_hand(grab_strength=0.95)
+    interpreter.update(fist, now=0.1)  # grab pose starts here
+    mode, events, _, pointer_delta = interpreter.update(fist, now=0.3)
+
+    assert mode == Mode.IDLE
+    assert [e.name for e in events] == ["fist_exit"]
+    assert pointer_delta is None
+
+
+def test_pinch_in_mouse_mode_fires_left_press_then_release():
+    interpreter = GestureInterpreter(
+        engage_mode=Mode.MOUSE, engage_dwell=0.0, pinch_threshold=0.8
+    )
+    interpreter.update(_pad_hand())
+    assert interpreter.mode == Mode.MOUSE
+
+    _, press_events, _, _ = interpreter.update(_pad_hand(pinch_strength=0.9))
+    assert [e.name for e in press_events] == ["left_press"]
+
+    _, held_events, _, _ = interpreter.update(_pad_hand(pinch_strength=0.9))
+    assert held_events == []
+
+    _, release_events, _, _ = interpreter.update(_pad_hand(pinch_strength=0.0))
+    assert [e.name for e in release_events] == ["left_release"]
+
+
+def test_middle_pinch_in_mouse_mode_fires_right_press_then_release():
+    interpreter = GestureInterpreter(
+        engage_mode=Mode.MOUSE, engage_dwell=0.0, middle_pinch_distance=30.0
+    )
+    interpreter.update(_pad_hand())
+    assert interpreter.mode == Mode.MOUSE
+
+    close_hand = _pad_hand(thumb_tip=(0, 0, 0), middle_tip=(10, 0, 0))
+    _, press_events, _, _ = interpreter.update(close_hand)
+    assert [e.name for e in press_events] == ["right_press"]
+
+    far_hand = _pad_hand(thumb_tip=(0, 0, 0), middle_tip=(1000, 0, 0))
+    _, release_events, _, _ = interpreter.update(far_hand)
+    assert [e.name for e in release_events] == ["right_release"]
 
 
 def test_check_staleness_releases_held_buttons_after_timeout():

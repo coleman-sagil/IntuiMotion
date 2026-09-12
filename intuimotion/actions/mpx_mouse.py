@@ -30,7 +30,7 @@ from Xlib.ext import xinput as xi
 from Xlib.protocol import rq
 
 from .dry_run import guarded
-from .mouse import map_to_screen
+from .mouse import MOUSE_SENSITIVITY, map_to_screen
 
 _X_XIWarpPointer = 41
 _X_XISetClientPointer = 44
@@ -133,6 +133,35 @@ class MpxPointer:
         )
         self._conn.flush()
 
+    def move_by(self, dx, dy):
+        # Same request as move_to, same per-device targeting, one field
+        # different: dst_win=X.NONE instead of the root window is what makes
+        # the warp relative. "If dest_w is None, XIWarpPointer moves the
+        # pointer by the offsets (dest_x, dest_y) relative to the current
+        # position of the pointer" -- man 3 XIWarpPointer on this machine
+        # (matching XI2proto.h's WarpPointer, where dst_win is a plain
+        # Window field with None a legal value).
+        #
+        # Note the weaker claim than this module's other comments: the
+        # relative-motion mechanism is confirmed from the X11 protocol docs,
+        # NOT from a live run -- unlike the "confirmed live" notes on
+        # XIWarpPointer's per-device targeting and the ClientPointer button
+        # plumbing, this path has never been driven by the real Leap sensor.
+        _XIWarpPointer(
+            display=self._conn.display,
+            opcode=self._opcode,
+            src_win=X.NONE,
+            dst_win=X.NONE,
+            src_x=0,
+            src_y=0,
+            src_width=0,
+            src_height=0,
+            dst_x=dx,
+            dst_y=dy,
+            deviceid=self.deviceid,
+        )
+        self._conn.flush()
+
     def press(self, button):
         self._conn.xtest_fake_input(X.ButtonPress, _BUTTON_NUMBERS.get(button, 1))
         self._conn.flush()
@@ -188,6 +217,29 @@ def move_to(hand_type, x, y):
 
 def move_to_leap_position(hand_type, leap_x, leap_y):
     move_to(hand_type, *map_to_screen(leap_x, leap_y))
+
+
+@guarded(
+    lambda hand_type, dx, dy: (
+        f"move {_hand_key(hand_type)} cursor by ({int(round(dx))}, {int(round(dy))})"
+    )
+)
+def move_by(hand_type, dx, dy):
+    pointer = _pointer_for(hand_type)
+    if pointer is not None:
+        pointer.move_by(int(round(dx)), int(round(dy)))
+
+
+def move_by_leap_delta(hand_type, dx_mm, dz_mm):
+    """Mode.MOUSE counterpart to move_to_leap_position, per hand cursor.
+
+    MOUSE_SENSITIVITY and the dz sign convention are deliberately mouse.py's,
+    imported rather than redefined here -- one source of truth for the tuning
+    constant, the same way map_to_screen is shared for the absolute case, so
+    tuning either number moves both cursor paths together and the single-
+    cursor and MPX paths can't silently drift apart.
+    """
+    move_by(hand_type, dx_mm * MOUSE_SENSITIVITY, dz_mm * MOUSE_SENSITIVITY)
 
 
 @guarded(lambda hand_type, button="left": f"{_hand_key(hand_type)} {button} button down")

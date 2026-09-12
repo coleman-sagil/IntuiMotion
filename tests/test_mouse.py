@@ -39,6 +39,64 @@ def test_map_to_screen_clamps_out_of_range_leap_coordinates(monkeypatch):
     assert (screen_x, screen_y) == (0.0, 0.0)
 
 
+class _FakeMouseController:
+    """Stands in for pynput's Controller so the relative-move tests can run
+    without moving the real cursor -- the same reason mouse.subprocess is
+    faked below rather than really shelling out to xrandr."""
+
+    def __init__(self):
+        self.moved_by = []
+
+    def move(self, dx, dy):
+        self.moved_by.append((dx, dy))
+
+
+def test_move_by_passes_integer_offsets_to_the_relative_move(monkeypatch):
+    fake = _FakeMouseController()
+    monkeypatch.setattr(mouse, "_mouse", fake)
+
+    mouse.move_by(3.6, -2.4)
+
+    # Rounded, not truncated -- and .move() (relative), not .position.
+    assert fake.moved_by == [(4, -2)]
+
+
+def test_move_by_leap_delta_scales_millimeters_by_sensitivity(monkeypatch):
+    fake = _FakeMouseController()
+    monkeypatch.setattr(mouse, "_mouse", fake)
+    monkeypatch.setattr(mouse, "MOUSE_SENSITIVITY", 5.0)
+
+    mouse.move_by_leap_delta(2.0, 0.0)
+
+    assert fake.moved_by == [(10, 0)]
+
+
+def test_move_by_leap_delta_moves_cursor_up_when_hand_pushes_away(monkeypatch):
+    fake = _FakeMouseController()
+    monkeypatch.setattr(mouse, "_mouse", fake)
+    monkeypatch.setattr(mouse, "MOUSE_SENSITIVITY", 1.0)
+
+    # Leap's +z increases toward the user, so pushing the hand away from the
+    # user is a *negative* dz, and that should move the cursor up the screen
+    # (a negative screen dy, since screen y grows downward) -- push away =
+    # up, like a physical touchpad. Untuned sign, see move_by_leap_delta.
+    mouse.move_by_leap_delta(0.0, -3.0)
+    (_, push_away_dy), = fake.moved_by
+
+    assert push_away_dy < 0
+
+
+def test_move_by_leap_delta_of_zero_does_not_move_the_cursor(monkeypatch):
+    # GestureInterpreter emits (0.0, 0.0) on the first in-band frame after
+    # engaging or re-entering the clutch band -- it must not jump the cursor.
+    fake = _FakeMouseController()
+    monkeypatch.setattr(mouse, "_mouse", fake)
+
+    mouse.move_by_leap_delta(0.0, 0.0)
+
+    assert fake.moved_by == [(0, 0)]
+
+
 class _FakeCompletedProcess:
     def __init__(self, stdout):
         self.stdout = stdout
