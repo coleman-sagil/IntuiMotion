@@ -1,47 +1,28 @@
-import leap
+"""Backwards-compatible entry point for building a hand-frame source.
+
+Historically this module imported the vendor `leap` SDK at module scope and
+built a LeapC connection directly, which meant IntuiMotion could not even be
+*imported* without the proprietary Ultraleap bindings installed. That made the
+vendor SDK a hard dependency of the whole application, on every platform,
+forever -- exactly the coupling this project is removing.
+
+The real implementations now live in `intuimotion.sources`, one module per
+backend, each imported lazily. This module stays as a thin alias so existing
+callers and docs keep working.
+"""
+
+from __future__ import annotations
+
+from .sources import available_sources, build_source, resolve_name
+
+__all__ = ["build_connection", "build_source", "available_sources", "resolve_name"]
 
 
-class TrackingListener(leap.Listener):
-    """Bridges raw LeapC tracking events to per-hand and per-frame callbacks.
+def build_connection(on_hand_frame, on_tracking_frame=None, source=None, **kwargs):
+    """Build the configured hand-frame source.
 
-    Most gestures only need one hand at a time (on_hand_frame). A few need
-    every hand in the same frame together -- two-hand gestures, or noticing
-    a hand has stopped appearing at all -- so on_tracking_frame gets the
-    full event.hands list once per frame, in addition to the per-hand calls.
+    Named "connection" for historical reasons; it returns a
+    `sources.base.HandSource`, which exposes the same `.open()` context
+    manager and `.set_tracking_mode()` the old vendor connection did.
     """
-
-    def __init__(self, on_hand_frame, on_tracking_frame=None):
-        super().__init__()
-        self._on_hand_frame = on_hand_frame
-        self._on_tracking_frame = on_tracking_frame
-
-    def on_connection_event(self, event):
-        print("Connected to the Ultraleap tracking service.")
-
-    def on_device_event(self, event):
-        try:
-            with event.device.open():
-                info = event.device.get_info()
-        except leap.exceptions.LeapCannotOpenDeviceError:
-            # Raised both when the device is already open (get_info() below
-            # will succeed) and on a genuine open failure (it won't) --
-            # the try/except here is only for the former.
-            try:
-                info = event.device.get_info()
-            except Exception as error:
-                print(f"Could not open or read tracking device: {error}")
-                return
-        print(f"Tracking device found: {info.serial}")
-
-    def on_tracking_event(self, event):
-        for hand in event.hands:
-            self._on_hand_frame(hand)
-        if self._on_tracking_frame is not None:
-            self._on_tracking_frame(event.hands)
-
-
-def build_connection(on_hand_frame, on_tracking_frame=None):
-    listener = TrackingListener(on_hand_frame, on_tracking_frame)
-    connection = leap.Connection()
-    connection.add_listener(listener)
-    return connection
+    return build_source(on_hand_frame, on_tracking_frame, name=source, **kwargs)

@@ -1,25 +1,43 @@
 # Intuimotion
 
 Gesture-driven mouse/pointer control, macros, and media transport (volume,
-track skip, play/pause) for the original Leap Motion Controller, built on
-Ultraleap's Gemini tracking stack.
+track skip, play/pause) — **device-agnostic**, with no proprietary SDK
+required.
 
-Companion setup/ops notes (install script, sensor bring-up) live in
-`~/leap-motion-control`; this repo is the actual application code.
+IntuiMotion does not depend on any vendor hand-tracking stack. Hands arrive
+through a pluggable *source* (`intuimotion/sources/`), so the same
+application runs on our own open driver, on no hardware at all, or on a
+future depth/LiDAR/radar frontend, without the gesture engine, actions or UI
+changing.
 
 ## Status
 
-Confirmed working end to end against live hardware: connects, tracks, and
-dispatches real mouse/media actions. See "Known gaps" below for what's
-intentionally left untuned.
+Working end to end. The gesture engine, dispatcher, actions, tray icon and
+HUD all run today on the `synthetic` source — no sensor, no drivers, no
+permissions — which is what makes the stack demoable and testable on any
+machine or OS.
+
+| Source | What it is | State |
+|---|---|---|
+| `synthetic` | Scripted gesture choreography, no hardware | **Working** — the default |
+| `openmotion` | Our own reverse-engineered USB driver | Transport implemented; blocked on a driver-side streaming regression |
+| `leapc` | Legacy Ultraleap vendor SDK | **Deprecated**, optional, never required |
+
+The vendor path is deliberately demoted: its distribution CDN is dead at the
+TLS layer, it only ever supported UltraLeap hardware, and it could not be
+reinstalled on a fresh machine. Nothing in IntuiMotion imports it unless you
+explicitly select it.
+
+```bash
+python -m intuimotion.main --source synthetic --dry-run   # runs anywhere
+```
 
 ## Architecture
 
 ```
-Leap Motion Controller (USB)
-  -> Ultraleap Hand Tracking Service (system daemon)
-  -> leapc-python-bindings (leap.Connection / leap.Listener)
-  -> intuimotion.connection.TrackingListener      per-hand frame callback
+any sensing device
+  -> intuimotion.sources.<backend>               synthetic | openmotion | leapc
+  -> intuimotion.sources.base.Hand               NORMALIZED SCHEMA -- the seam
   -> intuimotion.gestures.GestureInterpreter      raw hand data -> discrete gesture events + mode
   -> intuimotion.dispatcher.ActionDispatcher      gesture name -> config-mapped action
   -> intuimotion.actions.{mouse,media,macros}     pynput mouse / media keys / keystrokes / shell
@@ -36,28 +54,31 @@ continuous per-frame motion rather than a discrete triggered action.
 `intuimotion/ui/` is the only place PyQt6 is imported, and it's imported
 lazily — nothing below it imports Qt, and nothing in it imports the pipeline.
 
+## Adding a device
+
+Everything device-specific lives behind one module in `intuimotion/sources/`.
+To support new hardware, emit `sources.base.Hand` objects — palm position and
+velocity, five fingertips with extension flags, pinch/grab strengths,
+handedness — and register the backend in `sources/__init__.py`. Nothing above
+that line changes: the gesture engine, dispatcher, actions and UI are already
+device-agnostic and stay untouched.
+
+That normalized schema is the single most important interface in the project.
+It is deliberately the shape the gesture thresholds were tuned against
+(millimetres, +x right, +y up), so a new sensor inherits working gestures
+rather than needing them re-tuned.
+
 ## Setup
 
-1. Ultraleap Hand Tracking Service + Control Panel must already be installed
-   and running (see `~/leap-motion-control/install_ultraleap.sh`).
-2. Build the LeapC Python bindings against system Python (requires
-   `python3.10-dev` for `Python.h`, and a C compiler — gcc is already present
-   on this machine):
+No vendor software, no system daemon, no compiled bindings.
+
+1. Install this package (the project standardizes on `uv`):
    ```
-   sudo apt install -y python3.10-dev
-   cd ~/leap-motion-control/leapc-python-bindings
-   python3 -m build leapc-cffi
-   pip install --user leapc-cffi/dist/leapc_cffi-0.0.1.tar.gz
-   pip install --user -e leapc-python-api
+   uv venv && uv pip install -e .
    ```
-3. Install this package:
+2. Run it:
    ```
-   cd ~/Intuimotion
-   pip install --user -e .
-   ```
-4. Run it:
-   ```
-   python -m intuimotion.main
+   python -m intuimotion.main --source synthetic
    ```
    Or in dry-run mode, which logs every mouse/keyboard/volume/window action
    instead of actually performing it -- useful for testing gesture changes
