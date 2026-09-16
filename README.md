@@ -54,6 +54,36 @@ continuous per-frame motion rather than a discrete triggered action.
 `intuimotion/ui/` is the only place PyQt6 is imported, and it's imported
 lazily — nothing below it imports Qt, and nothing in it imports the pipeline.
 
+## Platforms
+
+Gesture output goes through a pointer *sink* (`intuimotion/sinks/`), chosen
+automatically per platform. Every backend is standard-library `ctypes`
+against the OS's own API — supporting a platform adds no third-party
+dependency.
+
+| Platform | Backend | Cursors | Notes |
+|---|---|---|---|
+| Linux / X11 | `x11mpx` | **one per hand** | XInput2 MPX; the only true multi-cursor path |
+| Linux / Wayland | `uinput` | one shared | XTest is ignored by Wayland; `uinput` sits below the display server |
+| Windows | `win32` | one shared | native `SendInput`, DPI-aware, multi-monitor |
+| macOS | `darwin` | one shared | Quartz `CGEvent`; needs Accessibility permission |
+| anywhere | `null` | — | logs pointer intent; the never-fails fallback |
+
+Override with `--input`/`$INTUIMOTION_INPUT`. Detection deliberately checks
+`$WAYLAND_DISPLAY`/`$XDG_SESSION_TYPE` rather than `$DISPLAY`, because
+XWayland sets `$DISPLAY` on a Wayland session where XTest injection silently
+does nothing.
+
+`uinput` needs access to `/dev/uinput`. Many systems already grant it to the
+active seat via ACL; if not:
+
+```
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+```
+
+then add yourself to the `input` group. If it isn't permitted, the app falls
+back to the `null` sink and still runs rather than refusing to start.
+
 ## Adding a device
 
 Everything device-specific lives behind one module in `intuimotion/sources/`.

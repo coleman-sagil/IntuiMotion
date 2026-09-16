@@ -7,6 +7,7 @@ from .actions.dry_run import set_enabled as set_dry_run
 from .config import DEFAULT_CONFIG_PATH, load_config
 from .connection import build_connection
 from .pipeline import HandFramePipeline
+from .sinks import BACKENDS as sink_backends_tuple
 from .sources import DEFAULT_SOURCE, available_sources, resolve_name
 
 
@@ -22,7 +23,7 @@ def _no_ui_from_env():
     return _flag_from_env("INTUIMOTION_NO_UI")
 
 
-def run(config_path=DEFAULT_CONFIG_PATH, dry_run=None, no_ui=None, source=None):
+def run(config_path=DEFAULT_CONFIG_PATH, dry_run=None, no_ui=None, source=None, input_backend=None):
     if dry_run is None:
         dry_run = _dry_run_from_env()
     if no_ui is None:
@@ -48,9 +49,12 @@ def run(config_path=DEFAULT_CONFIG_PATH, dry_run=None, no_ui=None, source=None):
         pipeline = HandFramePipeline(config, ui_bridge=bridge)
 
     if not dry_run:
-        # Two MPX master pointers, one per hand -- real X resources, so
+        # Real OS pointer resources (MPX masters, a uinput device, ...), so
         # skipped entirely in dry-run (nothing to tear down either, then).
-        mpx_mouse.setup()
+        # Never raises: sinks falls back to a logging sink on an
+        # unsupported or unpermitted platform.
+        mpx_mouse.setup(input_backend)
+        print(f"Intuimotion input: {mpx_mouse.active_backend}")
 
     if not no_ui:
         # Built before the source opens: the source's background thread
@@ -101,6 +105,10 @@ def run(config_path=DEFAULT_CONFIG_PATH, dry_run=None, no_ui=None, source=None):
                 mpx_mouse.teardown()
 
 
+def sink_backends():
+    return sink_backends_tuple
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="intuimotion",
@@ -118,6 +126,16 @@ def build_parser():
             "'synthetic' needs no hardware at all."
         ),
     )
+    parser.add_argument(
+        "--input",
+        dest="input_backend",
+        choices=sink_backends(),
+        default=None,
+        help=(
+            "pointer output backend (default: auto-detected, or "
+            "$INTUIMOTION_INPUT). 'null' logs instead of moving the cursor."
+        ),
+    )
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="gesture config YAML")
     parser.add_argument(
         "--dry-run",
@@ -133,7 +151,13 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    run(config_path=args.config, dry_run=args.dry_run, no_ui=args.no_ui, source=args.source)
+    run(
+        config_path=args.config,
+        dry_run=args.dry_run,
+        no_ui=args.no_ui,
+        source=args.source,
+        input_backend=args.input_backend,
+    )
 
 
 if __name__ == "__main__":

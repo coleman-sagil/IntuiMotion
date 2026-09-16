@@ -1,210 +1,85 @@
-"""Per-hand OS-level cursors via X11 Multi-Pointer X (MPX).
+"""Per-hand pointer routing, on whatever the host OS actually supports.
 
-Two independent primitives, two independent plumbing paths -- confirmed
-live on this machine, not just from docs:
+This module owns the *routing* -- which hand's gesture drives which cursor,
+and the Leap-units-to-pixels conversion. The platform-specific injection
+lives in `intuimotion/sinks/`, one backend per OS, all standard-library
+ctypes.
 
-- Motion: XIWarpPointer takes a target deviceid directly, so any X
-  connection can move any master pointer without disturbing the others.
-  (Confirmed live: warping a second master left the core pointer's queried
-  position byte-for-byte unchanged.)
-- Buttons: XTestFakeButtonEvent has no per-device targeting at all -- the X
-  server delivers it to whichever master is the *issuing connection's*
-  ClientPointer (set once via XISetClientPointer), not to any deviceid
-  passed by the caller (there isn't one). So each hand gets its own private
-  Display connection, with ClientPointer bound once at startup to that
-  hand's master -- no per-click toggling, no races between the two hands'
-  connections. (Confirmed live: an independent observer window watching for
-  ButtonPress/Release received exactly one press+release per connection,
-  at the coordinates that connection's master had been warped to.)
+Why the split (this was a real, load-bearing bug)
+-------------------------------------------------
+This module used to `import Xlib` at the top, and `pipeline.py` imports this
+module at the top. python-Xlib is Linux/X11-only, so on Windows or macOS
+`import intuimotion.pipeline` raised ImportError and the entire application
+was unrunnable -- exactly the failure the vendor `import leap` caused on the
+input side. The X11 code now lives in `actions/x11_mpx.py` and is imported
+only after `sinks` confirms a real X11 session.
 
-Neither XIWarpPointer nor XISetClientPointer is wrapped by python-xlib
-(confirmed against Xlib/ext/xinput.py source and python-xlib issue #191) --
-both are hand-built requests below on top of Xlib.protocol.rq, wire format
-taken from /usr/include/X11/extensions/XI2proto.h, the same pattern
-python-xlib's own extension modules use internally.
+The name is kept for continuity; it is no longer MPX-specific. MPX remains
+the only backend that gives each hand its own independent OS cursor, and it
+is still preferred on X11 for exactly that reason -- every other platform has
+a single system cursor that both hands share.
 """
-import subprocess
 
-from Xlib import X, display
-from Xlib.ext import xinput as xi
-from Xlib.protocol import rq
-
+from ..sinks import build_pointers
 from .dry_run import guarded
 from .mouse import MOUSE_SENSITIVITY, map_to_screen
 
-_X_XIWarpPointer = 41
-_X_XISetClientPointer = 44
-
-# hand type -> MPX master pointer name. Kept to exactly the two hands this
-# app tracks -- not a general-purpose N-pointer registry.
-_MASTER_NAMES = {"Left": "IntuiMotionLeft", "Right": "IntuiMotionRight"}
-
+# Re-exported for continuity: tests and older call sites read this. The X11
+# backend owns the authoritative copy.
 _BUTTON_NUMBERS = {"right": 3}  # anything else (including default "left") -> 1
 
+_pointers = {}
 
-class _XIWarpPointer(rq.Request):
-    _request = rq.Struct(
-        rq.Card8("opcode"),
-        rq.Opcode(_X_XIWarpPointer),
-        rq.RequestLength(),
-        rq.Window("src_win"),
-        rq.Window("dst_win"),
-        xi.FP1616("src_x"),
-        xi.FP1616("src_y"),
-        rq.Card16("src_width"),
-        rq.Card16("src_height"),
-        xi.FP1616("dst_x"),
-        xi.FP1616("dst_y"),
-        xi.DEVICEID("deviceid"),
-        rq.Pad(2),
-    )
-
-
-class _XISetClientPointer(rq.Request):
-    _request = rq.Struct(
-        rq.Card8("opcode"),
-        rq.Opcode(_X_XISetClientPointer),
-        rq.RequestLength(),
-        rq.Window("win"),
-        xi.DEVICEID("deviceid"),
-        rq.Pad(2),
-    )
+#: Name of the backend actually in use, set by setup(). Useful in logs and
+#: for the UI to report what the machine is capable of.
+active_backend = None
 
 
 def _hand_key(hand_type):
     # Real LeapC hands carry a HandType enum (.name == "Left"/"Right");
-    # the tests/fakes.py FakeHand carries a plain "Left"/"Right" string.
+    # a source-built Hand (and tests/fakes.py) carries a plain string.
     # This normalizes both to the same dict key without caring which one
     # a given caller has.
     return getattr(hand_type, "name", hand_type)
 
 
-class MpxPointer:
-    """One MPX master pointer plus a private X connection whose
-    ClientPointer is pinned to it for the lifetime of the connection.
+def setup(backend=None):
+    """Create one pointer sink per hand for this platform.
+
+    Call once at startup, after the display session is up and before the
+    tracking source opens -- not at import time, so importing this module
+    (e.g. under pytest, or headless) never touches the real display server
+    or creates virtual input devices.
+
+    Never raises on an unsupported/unpermitted platform: `sinks` falls back
+    to a logging sink so the gesture stack still runs end to end.
     """
-
-    def __init__(self, name):
-        device_name = f"{name} pointer"
-        # Best-effort cleanup of a same-named master left behind by an
-        # unclean previous exit (e.g. kill -9) before creating a fresh one --
-        # not a general stale-device sweep, just self-healing our own name.
-        subprocess.run(["xinput", "remove-master", device_name], capture_output=True)
-        subprocess.run(["xinput", "create-master", name], check=True, capture_output=True)
-
-        self._conn = display.Display()
-        self._root = self._conn.screen().root
-        self._opcode = self._conn.display.get_extension_major(xi.extname)
-        self.deviceid = self._resolve_deviceid(device_name)
-
-        _XISetClientPointer(
-            display=self._conn.display,
-            opcode=self._opcode,
-            win=X.NONE,
-            deviceid=self.deviceid,
-        )
-        self._conn.flush()
-
-    def _resolve_deviceid(self, device_name):
-        # Take the last match, not the first: if a stale same-named device
-        # somehow survived cleanup, the just-created one has the higher id.
-        matches = [
-            dev.deviceid
-            for dev in self._conn.xinput_query_device(xi.AllDevices).devices
-            if dev.name == device_name
-        ]
-        if not matches:
-            raise RuntimeError(f"xinput create-master ran but {device_name!r} was not found")
-        return matches[-1]
-
-    def move_to(self, x, y):
-        _XIWarpPointer(
-            display=self._conn.display,
-            opcode=self._opcode,
-            src_win=X.NONE,
-            dst_win=self._root,
-            src_x=0,
-            src_y=0,
-            src_width=0,
-            src_height=0,
-            dst_x=x,
-            dst_y=y,
-            deviceid=self.deviceid,
-        )
-        self._conn.flush()
-
-    def move_by(self, dx, dy):
-        # Same request as move_to, same per-device targeting, one field
-        # different: dst_win=X.NONE instead of the root window is what makes
-        # the warp relative. "If dest_w is None, XIWarpPointer moves the
-        # pointer by the offsets (dest_x, dest_y) relative to the current
-        # position of the pointer" -- man 3 XIWarpPointer on this machine
-        # (matching XI2proto.h's WarpPointer, where dst_win is a plain
-        # Window field with None a legal value).
-        #
-        # Note the weaker claim than this module's other comments: the
-        # relative-motion mechanism is confirmed from the X11 protocol docs,
-        # NOT from a live run -- unlike the "confirmed live" notes on
-        # XIWarpPointer's per-device targeting and the ClientPointer button
-        # plumbing, this path has never been driven by the real Leap sensor.
-        _XIWarpPointer(
-            display=self._conn.display,
-            opcode=self._opcode,
-            src_win=X.NONE,
-            dst_win=X.NONE,
-            src_x=0,
-            src_y=0,
-            src_width=0,
-            src_height=0,
-            dst_x=dx,
-            dst_y=dy,
-            deviceid=self.deviceid,
-        )
-        self._conn.flush()
-
-    def press(self, button):
-        self._conn.xtest_fake_input(X.ButtonPress, _BUTTON_NUMBERS.get(button, 1))
-        self._conn.flush()
-
-    def release(self, button):
-        self._conn.xtest_fake_input(X.ButtonRelease, _BUTTON_NUMBERS.get(button, 1))
-        self._conn.flush()
-
-    def close(self):
-        self._conn.close()
-        subprocess.run(
-            ["xinput", "remove-master", str(self.deviceid)], capture_output=True
-        )
-
-
-_pointers = {}
-
-
-def setup():
-    """Create one MPX master pointer per hand. Call once at startup, after
-    the X session is up and before the tracking connection opens -- not at
-    import time, so importing this module (e.g. under pytest, or headless)
-    never touches the real X server or creates master-pointer devices.
-    """
-    for side, name in _MASTER_NAMES.items():
-        _pointers[side] = MpxPointer(name)
+    global active_backend
+    _pointers.update(build_pointers(backend))
+    some = next(iter(_pointers.values()), None)
+    active_backend = getattr(some, "name", None)
 
 
 def teardown():
-    for pointer in _pointers.values():
-        pointer.close()
+    # On single-cursor platforms every side maps to the SAME sink object, so
+    # close each distinct object once rather than once per hand.
+    for pointer in {id(p): p for p in _pointers.values()}.values():
+        try:
+            pointer.close()
+        except Exception as error:  # noqa: BLE001 - teardown must not raise
+            print(f"[mpx_mouse] error closing {getattr(pointer, 'name', '?')}: {error}")
     _pointers.clear()
 
 
 def _pointer_for(hand_type):
-    # Defensive, not just tidy: this runs on the hot per-frame path from a
-    # C callback (see connection.py), so a hand_type with no pointer yet
-    # (setup() not called, or a hand side setup() doesn't know about) must
-    # not raise mid-tracking-loop -- log once and drop the frame instead.
+    # Defensive, not just tidy: this runs on the hot per-frame path from the
+    # source's callback thread, so a hand_type with no pointer yet (setup()
+    # not called, or a hand side setup() doesn't know about) must not raise
+    # mid-tracking-loop -- log once and drop the frame instead.
     key = _hand_key(hand_type)
     pointer = _pointers.get(key)
     if pointer is None:
-        print(f"[mpx_mouse] no MPX pointer set up for hand {key!r} -- call setup() first")
+        print(f"[mpx_mouse] no pointer set up for hand {key!r} -- call setup() first")
     return pointer
 
 
