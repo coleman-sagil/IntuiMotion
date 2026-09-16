@@ -84,6 +84,22 @@ KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
 then add yourself to the `input` group. If it isn't permitted, the app falls
 back to the `null` sink and still runs rather than refusing to start.
 
+**Screen size** is detected natively per platform (Windows virtual desktop,
+macOS main display, X11 RandR). Wayland has no portable way for a client to
+ask the compositor, so set it explicitly there if the cursor lands in the
+wrong place:
+
+```
+INTUIMOTION_SCREEN=3840x1080 python -m intuimotion.main
+```
+
+A wrong screen size never raises — the cursor simply lands somewhere else —
+so this is worth checking first if pointer mode feels offset.
+
+**Window control** (the two-hand minimize gesture) uses `xprop`/`xdotool`
+and is X11-only. Elsewhere it degrades to a no-op with one warning; every
+other gesture is unaffected.
+
 ## Adding a device
 
 Everything device-specific lives behind one module in `intuimotion/sources/`.

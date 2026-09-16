@@ -72,19 +72,17 @@ _EVENT = struct.Struct("llHHi")
 
 
 def _screen_size():
-    """Best-effort screen size, used to scale pixels into the abs range.
+    """Screen size used to scale pixels into the absolute axis range.
 
-    Tries Xlib if it happens to be importable (it usually is on this project),
-    then falls back to a sane default. Deliberately never fatal: a wrong size
-    makes the cursor mapping wrong, not the backend unusable.
+    Shares `sinks/screen.py` with the pointer mapping in `actions/mouse.py`
+    on purpose: if these two disagreed, the cursor would land somewhere other
+    than where the gesture layer believed it was putting it -- and nothing
+    would error. On Wayland, where there is no portable size query, set
+    $INTUIMOTION_SCREEN.
     """
-    try:
-        from Xlib import display as _display
+    from .screen import screen_size
 
-        screen = _display.Display().screen()
-        return int(screen.width_in_pixels), int(screen.height_in_pixels)
-    except Exception:  # noqa: BLE001 - any failure just means "use the default"
-        return 1920, 1080
+    return screen_size()
 
 
 class _UinputUserDev(ctypes.Structure):

@@ -3,12 +3,24 @@ import subprocess
 
 from pynput.mouse import Button, Controller as MouseController
 
+from ..sinks.screen import native_screen_size
 from .dry_run import guarded
 
 _mouse = MouseController()
 
 
 def _detect_screen_size():
+    # Platform-native query first (Windows virtual desktop, macOS main
+    # display, or an explicit $INTUIMOTION_SCREEN override). Without this,
+    # non-Linux hosts fell straight through to the 1920x1080 default and the
+    # pointer mapping was silently wrong on any other resolution -- the
+    # cursor still moved, it just landed in the wrong place, with no error.
+    # Returns None on Linux, so the xrandr path below stays authoritative
+    # there.
+    native = native_screen_size()
+    if native:
+        return native
+
     # xrandr's "current WxH" is the full X11 root window / RandR virtual
     # desktop size -- the same coordinate space pynput's Controller.position
     # moves in, spanning every monitor, not just one. tkinter's

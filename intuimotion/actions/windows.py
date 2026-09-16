@@ -8,8 +8,30 @@ from .dry_run import guarded
 PROTECTED_WM_CLASS_SUBSTRINGS = ["erminal", "konsole", "alacritty", "kitty", "xterm"]
 
 
+_missing_tool_warned = set()
+
+
 def _run(args):
-    return subprocess.run(args, capture_output=True, text=True, timeout=3)
+    """Run an X11 window tool, degrading instead of raising.
+
+    `xprop`/`xdotool` exist only on X11. On Windows, macOS, or a Wayland
+    session without XWayland tooling, `subprocess.run` raises
+    FileNotFoundError -- and this runs on the tracking callback thread, so an
+    uncaught raise there kills frame delivery rather than just failing one
+    gesture. Window control is the only capability lost; every other gesture
+    keeps working, so degrade loudly-once and carry on.
+    """
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=3)
+    except (FileNotFoundError, OSError, subprocess.SubprocessError) as error:
+        tool = args[0]
+        if tool not in _missing_tool_warned:
+            _missing_tool_warned.add(tool)
+            print(
+                f"[windows] {tool!r} unavailable ({error}); window control is "
+                "disabled on this platform. Other gestures are unaffected."
+            )
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="")
 
 
 def _list_window_ids():
@@ -36,4 +58,4 @@ def minimize_all_except_terminal():
     for window_id in _list_window_ids():
         if _is_protected(_window_class(window_id)):
             continue
-        subprocess.run(["xdotool", "windowminimize", window_id], timeout=3)
+        _run(["xdotool", "windowminimize", window_id])
